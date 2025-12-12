@@ -1,3 +1,6 @@
+// sillywm
+// by stx4
+
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,7 +10,8 @@
 #include <X11/xpm.h>
 #include <X11/cursorfont.h>
 
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a,b) (((a)<(b))?(a):(b))
+#define MAX(a,b) (((a)>(b))?(a):(b))
 
 Display* dpy;
 Window root;
@@ -17,15 +21,16 @@ static int error_pit(Display* dpy, XErrorEvent* e) { return 0; }
 
 #define TITLE_HEIGHT       18
 #define BUTTON_WIDTH       18
-#define BAR_HEIGHT         22
 #define BORDER_EXT          4
+
+#define BAR_HEIGHT TITLE_HEIGHT + BORDER_EXT
 #define BORDER_INNER (BORDER_EXT - 1)
 
-#define TITLE_COLOR  0x1A1A30
-#define BAR_TEXT     0x909090
-#define BORDER_COLOR 0x909090
-#define BORDER_DARK  0x404040
-#define WINDOW_BACK  0x303030
+#define TITLE_COLOR  0x3C3836
+#define BAR_TEXT     0xFBF1C7
+#define BORDER_COLOR 0x282828
+#define BORDER_DARK  0x504945
+#define WINDOW_BACK  0x3C3836
 
 typedef struct {
 	char* name;
@@ -34,6 +39,7 @@ typedef struct {
 
 static silly_exec launch_apps[] = {
 { "feh", (char* []){ "feh", "--bg-scale", "/home/stx/.wm/bg.jpg", NULL } }, 
+//{ "xsetroot", (char* []){ "xsetroot", "-solid", "#83a598", NULL } },
 { "st",  (char* []){ "st", NULL } }
 };
 
@@ -65,8 +71,10 @@ void silly_draw_bar(silly_bar* bar, char* string) {
 	XSetForeground(dpy, bar->gc, TITLE_COLOR);
 	XFillRectangle(dpy, bar->wnd, bar->gc, 0, 0, scr_w, BAR_HEIGHT);
 
-	XSetForeground(dpy, bar->gc, BORDER_COLOR); // color misuse lmao
+	XSetForeground(dpy, bar->gc, BORDER_COLOR);
 	XFillRectangle(dpy, bar->wnd, bar->gc, 0, BAR_HEIGHT - BORDER_EXT, scr_w, BAR_HEIGHT - BORDER_EXT);
+	
+	XSetForeground(dpy, bar->gc, BAR_TEXT);
 	XDrawString(dpy, bar->wnd, bar->gc, 5, (BAR_HEIGHT + 4) / 2, string, strlen(string));
 
 	XSetForeground(dpy, bar->gc, BORDER_DARK);
@@ -112,8 +120,8 @@ void silly_destroy_bar(silly_bar* bar) {
 
 static char* close_button_xpm[] = {
 	"18 18 2 1",
-	"X c #303030",
-	". c #A0A0A0",
+	"X c #FBF1C7",
+	". c #3C3836",
 	"..................",
 	"..................",
 	"..................",
@@ -136,8 +144,8 @@ static char* close_button_xpm[] = {
 
 static char* minimize_button_xpm[] = {
 	"18 18 2 1",
-	"X c #303030",
-	". c #A0A0A0",
+	"X c #FBF1C7",
+	". c #3C3836",
 	"..................",
 	"..................",
 	"..................",
@@ -217,7 +225,7 @@ silly_window* silly_register_window(Window client) {
 	y = MAX(BAR_HEIGHT, y);
 
 	int border_width  = client_width  + (BORDER_EXT * 2);
-	int border_height = client_height + (BORDER_EXT * 2) + TITLE_HEIGHT;
+	int border_height = client_height + (BORDER_EXT * 2) + TITLE_HEIGHT + 1;
 
 	swnd->rolled = false;
 	
@@ -230,9 +238,8 @@ silly_window* silly_register_window(Window client) {
 	swnd->border_width  = border_width;
 	swnd->border_height = border_height;
 
-	// 18 references here are for pixmaps
-	swnd->close    = (silly_button){ BORDER_EXT, BORDER_EXT, 18, 18 };
-	swnd->minimize = (silly_button){ swnd->border_width - BORDER_EXT - 18, BORDER_EXT, 18, 18 };
+	swnd->close    = (silly_button){ BORDER_EXT, BORDER_EXT, BUTTON_WIDTH, TITLE_HEIGHT };
+	swnd->minimize = (silly_button){ swnd->border_width - BORDER_EXT - BUTTON_WIDTH, BORDER_EXT, BUTTON_WIDTH, TITLE_HEIGHT };
 	swnd->titlebar = (silly_button){ BORDER_EXT + BUTTON_WIDTH, BORDER_EXT, swnd->client_width - (BUTTON_WIDTH * 2) - 2, TITLE_HEIGHT };
 
 	swnd->border = XCreateSimpleWindow(dpy, root, x, y, border_width, border_height, 0, 0, BORDER_COLOR);
@@ -304,6 +311,14 @@ unmap:
 void silly_move_window(Window wnd, int x, int y) {
 	silly_window* swnd = silly_find_window(wnd);
 	if (!swnd) return;
+
+	if (swnd->rolled) {
+		x = MAX(0,          MIN(x, scr_w - swnd->border_width));
+		y = MAX(BAR_HEIGHT, MIN(y, scr_h - (BORDER_EXT + TITLE_HEIGHT + 1)));
+	} else {
+		x = MAX(0,          MIN(x, scr_w - swnd->border_width)); 
+		y = MAX(BAR_HEIGHT, MIN(y, scr_h - swnd->border_height));
+	}
 	XMoveWindow(dpy, swnd->border, x, y);
 
 	swnd->border_x = x;
@@ -335,6 +350,7 @@ void silly_redraw_borders(silly_window* swnd) {
 	XSetForeground(dpy, swnd->border_gc, WINDOW_BACK);
 	XFillRectangle(dpy, swnd->border, swnd->border_gc, BORDER_EXT, BORDER_EXT + TITLE_HEIGHT + 1, swnd->client_width, swnd->client_height);
 }
+
 int main(void) {
 	dpy = XOpenDisplay(0);
 	if (!dpy) return 1;
@@ -363,15 +379,15 @@ int main(void) {
 
 	silly_window* swnd;
 
-	time_t last = time(NULL), current;
+	time_t last_time = time(NULL), current_time;
 	while (1) {
-		current = time(NULL);
-		if (difftime(current, last) >= 1.0) {
+		current_time = time(NULL);
+		if (difftime(current_time, last_time) >= 1.0) {
 			Window focus;
 			int revert;
 			XGetInputFocus(dpy, &focus, &revert);
 			silly_refresh_bar(bar, focus);
-			last = current;
+			last_time = current_time;
 		}
 
         if (!XPending(dpy)) continue;
@@ -389,7 +405,7 @@ int main(void) {
 				}
 			}
 			XSetInputFocus(dpy, swnd->client, RevertToPointerRoot, CurrentTime);
-		} else if (ev.type == UnmapNotify) {
+		} else if (ev.type == UnmapNotify || ev.type == DestroyNotify) {
 			swnd = silly_find_window(ev.xunmap.window);
 			if (swnd && !swnd->rolled)
 				silly_unregister_window(ev.xunmap.window);
@@ -420,7 +436,7 @@ int main(void) {
 			}
         } else if (ev.type == MotionNotify) {
 			int x = attr.x + ev.xbutton.x_root - start.x_root;
-			int y = MAX(BAR_HEIGHT, attr.y + ev.xbutton.y_root - start.y_root);
+			int y = attr.y + ev.xbutton.y_root - start.y_root;
 			silly_move_window(start.window, x, y);
 		} else if (ev.type == ButtonRelease) {
 			XUngrabPointer(dpy, CurrentTime);
@@ -429,6 +445,11 @@ int main(void) {
 		swnd = NULL;
     }
 
+	for (swnd = current; current; swnd = swnd->next) {
+		silly_unregister_window(swnd->client);
+	}
+
+	XFreeCursor(dpy, cur);
 	silly_destroy_bar(bar);
 	return 0;
 }
