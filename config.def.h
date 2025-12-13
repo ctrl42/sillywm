@@ -5,8 +5,9 @@
 #define BAR_HEIGHT TITLE_HEIGHT + BORDER_EXT
 #define BORDER_INNER (BORDER_EXT - 1)
 
-#define DEFAULT_X          10
-#define DEFAULT_Y          BAR_HEIGHT + 10
+#define EDGE_PADDING       10
+#define DEFAULT_X EDGE_PADDING
+#define DEFAULT_Y BAR_HEIGHT + EDGE_PADDING
 
 #define TITLE_COLOR  0x282828
 #define BAR_TEXT     0xFBF1C7

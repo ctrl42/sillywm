@@ -94,8 +94,8 @@ void silly_handle_bind(XKeyEvent* ev) {
 	for (int i = 0; i < sizeof(binds) / sizeof(binds[0]); i++)
 		if (binds[i].keycode == sym) {
 			to_quit = binds[i].quit;
-			if (to_quit) return;
-			if (fork() == 0) execvp(binds[i].app.name, binds[i].app.argv);
+			if (!to_quit && fork() == 0)
+				execvp(binds[i].app.name, binds[i].app.argv);
 			return;
 		}
 }
@@ -343,11 +343,11 @@ void silly_move_window(Window wnd, int x, int y) {
 	if (!swnd) return;
 
 	if (swnd->rolled) {
-		x = MAX(0,          MIN(x, scr_w - swnd->border_width));
-		y = MAX(BAR_HEIGHT, MIN(y, scr_h - (BORDER_EXT + TITLE_HEIGHT + 1)));
+		x = MAX(EDGE_PADDING, MIN(x, scr_w - EDGE_PADDING - swnd->border_width));
+		y = MAX(BAR_HEIGHT + EDGE_PADDING, MIN(y, scr_h - EDGE_PADDING - (BORDER_EXT + TITLE_HEIGHT + 1)));
 	} else {
-		x = MAX(0,          MIN(x, scr_w - swnd->border_width)); 
-		y = MAX(BAR_HEIGHT, MIN(y, scr_h - swnd->border_height));
+		x = MAX(EDGE_PADDING, MIN(x, scr_w - EDGE_PADDING - swnd->border_width)); 
+		y = MAX(BAR_HEIGHT + EDGE_PADDING, MIN(y, scr_h - EDGE_PADDING - swnd->border_height));
 	}
 	XMoveWindow(dpy, swnd->border, x, y);
 
