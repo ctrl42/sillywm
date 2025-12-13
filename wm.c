@@ -9,13 +9,18 @@
 #include <X11/Xlib.h>
 #include <X11/xpm.h>
 #include <X11/cursorfont.h>
+#include <X11/Xft/Xft.h>
+#include <fontconfig/fontconfig.h>
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
 Display* dpy;
 Window root;
-int scr_w, scr_h;
+XftFont* font;
+int scr, scr_w, scr_h;
+bool to_quit = false;
+XftColor ren_fg;
 
 static int error_pit(Display* dpy, XErrorEvent* e) { return 0; }
 
@@ -26,11 +31,22 @@ static int error_pit(Display* dpy, XErrorEvent* e) { return 0; }
 #define BAR_HEIGHT TITLE_HEIGHT + BORDER_EXT
 #define BORDER_INNER (BORDER_EXT - 1)
 
+static char* font_name = "Fixedsys Excelsior:pixelsize=15:antialias=false";
+
 #define TITLE_COLOR  0x3C3836
 #define BAR_TEXT     0xFBF1C7
 #define BORDER_COLOR 0x282828
 #define BORDER_DARK  0x504945
 #define WINDOW_BACK  0x3C3836
+
+#define MOD_MASK     Mod1Mask
+
+XRenderColor text_fg = {
+	.red   = ((BAR_TEXT    >> 16) & 0xFF) * 257,
+	.green = ((BAR_TEXT    >>  8) & 0xFF) * 257,
+	.blue  = ((BAR_TEXT    >>  0) & 0xFF) * 257,
+	.alpha = 0xFFFF 
+};
 
 typedef struct {
 	char* name;
@@ -38,18 +54,44 @@ typedef struct {
 } silly_exec;
 
 static silly_exec launch_apps[] = {
-{ "feh", (char* []){ "feh", "--bg-scale", "/home/stx/.wm/bg.jpg", NULL } }, 
-//{ "xsetroot", (char* []){ "xsetroot", "-solid", "#83a598", NULL } },
-{ "st",  (char* []){ "st", NULL } }
+	{"feh",(char*[]){"feh","--bg-scale","/home/stx/.wm/bg.jpg",NULL}}
 };
 
 void silly_init_apps(void) {
 	for (int i = 0; i < (sizeof(launch_apps) / sizeof(launch_apps[0])); i++)
-		if (!fork()) execvp(launch_apps[i].name, launch_apps[i].argv);
+		if (fork() == 0) execvp(launch_apps[i].name, launch_apps[i].argv);
+}
+
+typedef struct {
+	bool quit;
+	int keycode;
+	silly_exec app;
+} silly_bind;
+
+silly_bind binds[] = {
+	{false,XK_Return,{"st",(char*[]){"st",NULL}}},
+	{true, XK_q,{NULL,NULL}}
+};
+
+void silly_init_binds(void) {
+	for (int i = 0; i < sizeof(binds) / sizeof(binds[0]); i++)
+		XGrabKey(dpy, XKeysymToKeycode(dpy, binds[i].keycode), MOD_MASK, root, True, GrabModeAsync, GrabModeAsync);
+}
+
+void silly_handle_bind(XKeyEvent* ev) {
+	KeySym sym = XLookupKeysym(ev, 0);
+	for (int i = 0; i < sizeof(binds) / sizeof(binds[0]); i++)
+		if (binds[i].keycode == sym) {
+			to_quit = binds[i].quit;
+			if (to_quit) return;
+			if (fork() == 0) execvp(binds[i].app.name, binds[i].app.argv);
+			return;
+		}
 }
 
 typedef struct {
 	Window wnd;
+	XftDraw* xftdraw;
 	GC gc;
 } silly_bar;
 
@@ -60,6 +102,11 @@ silly_bar* silly_init_bar(void) {
 		dpy, root,
 		0, 0, scr_w, BAR_HEIGHT,
 		0, 0, TITLE_COLOR
+	);
+	bar->xftdraw = XftDrawCreate(
+		dpy, bar->wnd,
+		DefaultVisual(dpy, scr),
+		DefaultColormap(dpy, scr)
 	);
 	XMapWindow(dpy, bar->wnd);
 	bar->gc = XCreateGC(dpy, bar->wnd, 0, NULL);
@@ -74,8 +121,7 @@ void silly_draw_bar(silly_bar* bar, char* string) {
 	XSetForeground(dpy, bar->gc, BORDER_COLOR);
 	XFillRectangle(dpy, bar->wnd, bar->gc, 0, BAR_HEIGHT - BORDER_EXT, scr_w, BAR_HEIGHT - BORDER_EXT);
 	
-	XSetForeground(dpy, bar->gc, BAR_TEXT);
-	XDrawString(dpy, bar->wnd, bar->gc, 5, (BAR_HEIGHT + 4) / 2, string, strlen(string));
+	XftDrawStringUtf8(bar->xftdraw, &ren_fg, font, 5, (BAR_HEIGHT + 4) / 2, (FcChar8*)string, strlen(string));
 
 	XSetForeground(dpy, bar->gc, BORDER_DARK);
 	XDrawLine(dpy, bar->wnd, bar->gc, 0, BAR_HEIGHT - BORDER_EXT, scr_w, BAR_HEIGHT - BORDER_EXT);
@@ -356,12 +402,18 @@ int main(void) {
 	if (!dpy) return 1;
 
 	root = DefaultRootWindow(dpy);
-	XSelectInput(dpy, root, SubstructureRedirectMask | SubstructureNotifyMask);
-
-	int scr = DefaultScreen(dpy);
+	scr = DefaultScreen(dpy);
 	scr_w = DisplayWidth(dpy, scr);
 	scr_h = DisplayHeight(dpy, scr);
 
+	font = XftFontOpenName(dpy, scr, font_name);
+	if (!font) return 1; // install fixedsys brother
+	
+	Visual*  vis  = DefaultVisual(dpy, scr);
+	Colormap cmap = DefaultColormap(dpy, scr);
+	XftColorAllocValue(dpy, vis, cmap, &text_fg, &ren_fg);
+
+	XSelectInput(dpy, root, SubstructureRedirectMask | SubstructureNotifyMask);
 	Cursor cur = XCreateFontCursor(dpy, XC_X_cursor);
 	XDefineCursor(dpy, root, cur);
 
@@ -370,8 +422,10 @@ int main(void) {
 	XpmCreatePixmapFromData(dpy, root, close_button_xpm,    &close_pixmap,    &close_mask,    &xpm_attr);
 	XpmCreatePixmapFromData(dpy, root, minimize_button_xpm, &minimize_pixmap, &minimize_mask, &xpm_attr);
 
+	silly_init_binds();
 	silly_init_apps();
 	silly_bar* bar = silly_init_bar();
+	silly_refresh_bar(bar, None);
 
 	XEvent ev;
 	XButtonEvent start;
@@ -390,7 +444,7 @@ int main(void) {
 			last_time = current_time;
 		}
 
-        if (!XPending(dpy)) continue;
+        if (!XPending(dpy)) { usleep(1000); continue; };
 		XNextEvent(dpy, &ev);
 		if (ev.type == MapRequest) {
 			swnd = NULL;
@@ -441,15 +495,15 @@ int main(void) {
 		} else if (ev.type == ButtonRelease) {
 			XUngrabPointer(dpy, CurrentTime);
 			start.window = None;
-		}
+		} else if (ev.type == KeyPress)
+			silly_handle_bind(&ev.xkey);
+		
+		if (to_quit) break;
 		swnd = NULL;
     }
 
-	for (swnd = current; current; swnd = swnd->next) {
-		silly_unregister_window(swnd->client);
-	}
-
 	XFreeCursor(dpy, cur);
+	XUngrabKeyboard(dpy, CurrentTime);
 	silly_destroy_bar(bar);
 	return 0;
 }
