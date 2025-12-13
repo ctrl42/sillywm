@@ -1,2 +1,8 @@
-sillywm: wm.c
-	@gcc $< -o $@ -lX11 -lXpm
+CC     = gcc
+CFLAGS = -lX11 -lXpm -lXft -lfontconfig -I/usr/include/freetype2 
+
+sillywm: wm.c config.h
+	@$(CC) $< -o $@ $(CFLAGS) 
+
+config.h: config.def.h
+	@cp $< $@

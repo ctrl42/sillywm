@@ -15,31 +15,57 @@
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
+typedef struct {
+	char* name;
+	char** argv;
+} silly_exec;
+
+typedef struct {
+	bool quit;
+	int keycode;
+	silly_exec app;
+} silly_bind;
+
+typedef struct {
+	int x, y, w, h;
+} silly_button;
+
+typedef struct {
+	Window wnd;
+	XftDraw* xftdraw;
+	GC gc;
+} silly_bar;
+
+typedef struct silly_window {
+	Window client;
+	Window border;
+	GC border_gc;
+
+	bool rolled;
+	int border_x, border_y;
+	int border_width, border_height;
+	int client_width, client_height;
+
+	silly_button close, minimize;
+	silly_button titlebar; // i know like wtf or smth
+
+	struct silly_window* next;
+} silly_window;
+
+#include "config.h"
+
+// mess (not sorry)
 Display* dpy;
 Window root;
 XftFont* font;
 int scr, scr_w, scr_h;
 bool to_quit = false;
 XftColor ren_fg;
+silly_window* current = NULL;
+Pixmap close_pixmap,    close_mask;
+Pixmap minimize_pixmap, minimize_mask;
 
 static int error_pit(Display* dpy, XErrorEvent* e) { return 0; }
-
-#define TITLE_HEIGHT       18
-#define BUTTON_WIDTH       18
-#define BORDER_EXT          4
-
-#define BAR_HEIGHT TITLE_HEIGHT + BORDER_EXT
-#define BORDER_INNER (BORDER_EXT - 1)
-
-static char* font_name = "Fixedsys Excelsior:pixelsize=15:antialias=false";
-
-#define TITLE_COLOR  0x3C3836
-#define BAR_TEXT     0xFBF1C7
-#define BORDER_COLOR 0x282828
-#define BORDER_DARK  0x504945
-#define WINDOW_BACK  0x3C3836
-
-#define MOD_MASK     Mod1Mask
 
 XRenderColor text_fg = {
 	.red   = ((BAR_TEXT    >> 16) & 0xFF) * 257,
@@ -48,25 +74,10 @@ XRenderColor text_fg = {
 	.alpha = 0xFFFF 
 };
 
-typedef struct {
-	char* name;
-	char** argv;
-} silly_exec;
-
-static silly_exec launch_apps[] = {
-	{"feh",(char*[]){"feh","--bg-scale","/home/stx/.wm/bg.jpg",NULL}}
-};
-
 void silly_init_apps(void) {
 	for (int i = 0; i < (sizeof(launch_apps) / sizeof(launch_apps[0])); i++)
 		if (fork() == 0) execvp(launch_apps[i].name, launch_apps[i].argv);
 }
-
-typedef struct {
-	bool quit;
-	int keycode;
-	silly_exec app;
-} silly_bind;
 
 silly_bind binds[] = {
 	{false,XK_Return,{"st",(char*[]){"st",NULL}}},
@@ -89,12 +100,6 @@ void silly_handle_bind(XKeyEvent* ev) {
 		}
 }
 
-typedef struct {
-	Window wnd;
-	XftDraw* xftdraw;
-	GC gc;
-} silly_bar;
-
 silly_bar* silly_init_bar(void) {
 	silly_bar* bar = calloc(1, sizeof(silly_bar));
 	
@@ -114,14 +119,17 @@ silly_bar* silly_init_bar(void) {
 	return bar;
 }
 
-void silly_draw_bar(silly_bar* bar, char* string) {
+void silly_draw_bar(silly_bar* bar, char* title, char* status) {
 	XSetForeground(dpy, bar->gc, TITLE_COLOR);
 	XFillRectangle(dpy, bar->wnd, bar->gc, 0, 0, scr_w, BAR_HEIGHT);
 
 	XSetForeground(dpy, bar->gc, BORDER_COLOR);
 	XFillRectangle(dpy, bar->wnd, bar->gc, 0, BAR_HEIGHT - BORDER_EXT, scr_w, BAR_HEIGHT - BORDER_EXT);
-	
-	XftDrawStringUtf8(bar->xftdraw, &ren_fg, font, 5, (BAR_HEIGHT + 4) / 2, (FcChar8*)string, strlen(string));
+
+	XGlyphInfo extents;
+	XftTextExtentsUtf8(dpy, font, (FcChar8*)status, strlen(status), &extents);
+	XftDrawStringUtf8(bar->xftdraw, &ren_fg, font, 5, (BAR_HEIGHT + 4) / 2, (FcChar8*)title, strlen(title));
+	XftDrawStringUtf8(bar->xftdraw, &ren_fg, font, scr_w - extents.width - 5, (BAR_HEIGHT + 4) / 2, (FcChar8*)status, strlen(status));
 
 	XSetForeground(dpy, bar->gc, BORDER_DARK);
 	XDrawLine(dpy, bar->wnd, bar->gc, 0, BAR_HEIGHT - BORDER_EXT, scr_w, BAR_HEIGHT - BORDER_EXT);
@@ -148,13 +156,12 @@ void silly_refresh_bar(silly_bar* bar, Window focus) {
 
 	char status[128];
 	sprintf(status,
-		"%s || %02d:%02d | %02d/%02d/%02d | %d",
-		title ? title : "(desk)",
+		"%02d:%02d | %02d/%02d/%02d | %d",
 		tm->tm_hour, tm->tm_min,
 		tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900,
 		tm->tm_yday
 	);
-	silly_draw_bar(bar, status);
+	silly_draw_bar(bar, title ? title : "(desk)", status);
 	if (title) XFree(title);
 }
 
@@ -212,33 +219,9 @@ static char* minimize_button_xpm[] = {
 	".................."
 };
 
-typedef struct {
-	int x, y, w, h;
-} silly_button;
-
 bool silly_button_inside(int x, int y, silly_button* but) {
     return x >= but->x && x < but->x + but->w && y >= but->y && y < but->y + but->h;
 }
-
-typedef struct silly_window {
-	Window client;
-	Window border;
-	GC border_gc;
-
-	bool rolled;
-	int border_x, border_y;
-	int border_width, border_height;
-	int client_width, client_height;
-
-	silly_button close, minimize;
-	silly_button titlebar; // i know like wtf or smth
-
-	struct silly_window* next;
-} silly_window;
-silly_window* current = NULL;
-
-Pixmap close_pixmap,    close_mask;
-Pixmap minimize_pixmap, minimize_mask;
 
 void close_window(Window wnd) {
 	XEvent event;
@@ -268,7 +251,8 @@ silly_window* silly_register_window(Window client) {
 	int x, y, client_width, client_height, borderw, depth;
 	XGetGeometry(dpy, swnd->client, &r, &x, &y, &client_width, &client_height, &borderw, &depth);
 
-	y = MAX(BAR_HEIGHT, y);
+	x = x != 0 ? x : DEFAULT_X;
+	y = MAX(BAR_HEIGHT, y != 0 ? y : DEFAULT_Y);
 
 	int border_width  = client_width  + (BORDER_EXT * 2);
 	int border_height = client_height + (BORDER_EXT * 2) + TITLE_HEIGHT + 1;
@@ -436,7 +420,7 @@ int main(void) {
 	time_t last_time = time(NULL), current_time;
 	while (1) {
 		current_time = time(NULL);
-		if (difftime(current_time, last_time) >= 1.0) {
+		if (difftime(current_time, last_time) >= 2.0) { // 30 updates/min
 			Window focus;
 			int revert;
 			XGetInputFocus(dpy, &focus, &revert);
@@ -444,7 +428,7 @@ int main(void) {
 			last_time = current_time;
 		}
 
-        if (!XPending(dpy)) { usleep(1000); continue; };
+        if (!XPending(dpy)) { usleep(500); continue; }; // reduce load
 		XNextEvent(dpy, &ev);
 		if (ev.type == MapRequest) {
 			swnd = NULL;
@@ -459,10 +443,12 @@ int main(void) {
 				}
 			}
 			XSetInputFocus(dpy, swnd->client, RevertToPointerRoot, CurrentTime);
+			silly_refresh_bar(bar, swnd->client);
 		} else if (ev.type == UnmapNotify || ev.type == DestroyNotify) {
 			swnd = silly_find_window(ev.xunmap.window);
 			if (swnd && !swnd->rolled)
 				silly_unregister_window(ev.xunmap.window);
+			silly_refresh_bar(bar, None);
 		} else if (ev.type == Expose) {
 			swnd = silly_find_window(ev.xexpose.window);
 			if (swnd && ev.xexpose.window == swnd->border) silly_redraw_borders(swnd);
@@ -474,15 +460,19 @@ int main(void) {
 				XRaiseWindow(dpy, swnd->border);
 				XWindowAttributes client_attr;
 				XGetWindowAttributes(dpy, swnd->client, &client_attr);
-				if (client_attr.map_state == IsViewable)
+				if (client_attr.map_state == IsViewable) {
 					XSetInputFocus(dpy, swnd->client, RevertToPointerRoot, CurrentTime);
+					silly_refresh_bar(bar, swnd->client);
+				}
 			}
 
-			if (swnd && silly_button_inside(x, y, &swnd->close))
+			if (swnd && silly_button_inside(x, y, &swnd->close)) {
+				if (swnd->rolled) XMapWindow(dpy, swnd->client);
 				close_window(swnd->client);
-			else if (swnd && silly_button_inside(x, y, &swnd->minimize))
+			} else if (swnd && silly_button_inside(x, y, &swnd->minimize)) {
 				silly_roll_window(swnd);
-			else if (swnd && silly_button_inside(x, y, &swnd->titlebar)) {
+				silly_refresh_bar(bar, swnd->rolled ? None : swnd->client);
+			} else if (swnd && silly_button_inside(x, y, &swnd->titlebar)) {
 				start = ev.xbutton;
 				XGetWindowAttributes(dpy, ev.xbutton.window, &attr);
 				XGrabPointer(dpy, swnd->border, True, PointerMotionMask | ButtonReleaseMask,
