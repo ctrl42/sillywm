@@ -155,10 +155,9 @@ void silly_refresh_bar(silly_bar* bar, Window focus) {
 
 	char status[128];
 	sprintf(status,
-		"%02d:%02d | %02d/%02d/%02d | %d",
+		"%02d:%02d %02d/%02d/%02d",
 		tm->tm_hour, tm->tm_min,
-		tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900,
-		tm->tm_yday
+		tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900
 	);
 	silly_draw_bar(bar, title ? title : "(desk)", status);
 	if (title) XFree(title);
