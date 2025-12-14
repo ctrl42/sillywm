@@ -21,7 +21,6 @@ typedef struct {
 } silly_exec;
 
 typedef struct {
-	bool quit;
 	int keycode;
 	silly_exec app;
 } silly_bind;
@@ -54,6 +53,9 @@ typedef struct silly_window {
 
 #include "config.h"
 
+#define BAR_HEIGHT TITLE_HEIGHT + BORDER_EXT
+#define BORDER_INNER (BORDER_EXT - 1)
+
 // mess (not sorry)
 Display* dpy;
 Window root;
@@ -79,11 +81,6 @@ void silly_init_apps(void) {
 		if (fork() == 0) execvp(launch_apps[i].name, launch_apps[i].argv);
 }
 
-silly_bind binds[] = {
-	{false,XK_Return,{"st",(char*[]){"st",NULL}}},
-	{true, XK_q,{NULL,NULL}}
-};
-
 void silly_init_binds(void) {
 	for (int i = 0; i < sizeof(binds) / sizeof(binds[0]); i++)
 		XGrabKey(dpy, XKeysymToKeycode(dpy, binds[i].keycode), MOD_MASK, root, True, GrabModeAsync, GrabModeAsync);
@@ -93,7 +90,7 @@ void silly_handle_bind(XKeyEvent* ev) {
 	KeySym sym = XLookupKeysym(ev, 0);
 	for (int i = 0; i < sizeof(binds) / sizeof(binds[0]); i++)
 		if (binds[i].keycode == sym) {
-			to_quit = binds[i].quit;
+			to_quit = (binds[i].app.name == NULL);
 			if (!to_quit && fork() == 0)
 				execvp(binds[i].app.name, binds[i].app.argv);
 			return;
@@ -113,6 +110,7 @@ silly_bar* silly_init_bar(void) {
 		DefaultVisual(dpy, scr),
 		DefaultColormap(dpy, scr)
 	);
+	XSelectInput(dpy, bar->wnd, ExposureMask);
 	XMapWindow(dpy, bar->wnd);
 	bar->gc = XCreateGC(dpy, bar->wnd, 0, NULL);
 
@@ -171,54 +169,7 @@ void silly_destroy_bar(silly_bar* bar) {
 	free(bar);
 }
 
-static char* close_button_xpm[] = {
-	"18 18 2 1",
-	"X c #FBF1C7",
-	". c #3C3836",
-	"..................",
-	"..................",
-	"..................",
-	"..................",
-	"....XX......XX....",
-	"....XXX....XXX....",
-	".....XXX..XXX.....",
-	"......XXXXXX......",
-	".......XXXX.......",
-	".......XXXX.......",
-	"......XXXXXX......",
-	".....XXX..XXX.....",
-	"....XXX....XXX....",
-	"....XX......XX....",
-	"..................",
-	"..................",
-	"..................",
-	".................."
-};
-
-static char* minimize_button_xpm[] = {
-	"18 18 2 1",
-	"X c #FBF1C7",
-	". c #3C3836",
-	"..................",
-	"..................",
-	"..................",
-	"..................",
-	"..................",
-	"..................",
-	"..................",
-	".....XXXXXXXX.....",
-	"......XXXXXX......",
-	".......XXXX.......",
-	"........XX........",
-	"..................",
-	"..................",
-	"..................",
-	"..................",
-	"..................",
-	"..................",
-	".................."
-};
-
+// DOES NOT CHECK IF BUTTON IS DOWN THOUGH
 bool silly_button_inside(int x, int y, silly_button* but) {
     return x >= but->x && x < but->x + but->w && y >= but->y && y < but->y + but->h;
 }
@@ -338,10 +289,7 @@ unmap:
 	free(swnd);
 }
 
-void silly_move_window(Window wnd, int x, int y) {
-	silly_window* swnd = silly_find_window(wnd);
-	if (!swnd) return;
-
+void silly_move_window(silly_window* swnd, int x, int y) {
 	if (swnd->rolled) {
 		x = MAX(EDGE_PADDING, MIN(x, scr_w - EDGE_PADDING - swnd->border_width));
 		y = MAX(BAR_HEIGHT + EDGE_PADDING, MIN(y, scr_h - EDGE_PADDING - (BORDER_EXT + TITLE_HEIGHT + 1)));
@@ -353,6 +301,10 @@ void silly_move_window(Window wnd, int x, int y) {
 
 	swnd->border_x = x;
 	swnd->border_y = y;
+}
+
+void silly_size_window(silly_window* swnd, int width, int height) {
+	return;
 }
 
 void silly_redraw_borders(silly_window* swnd) {
@@ -452,6 +404,12 @@ int main(void) {
 		} else if (ev.type == Expose) {
 			swnd = silly_find_window(ev.xexpose.window);
 			if (swnd && ev.xexpose.window == swnd->border) silly_redraw_borders(swnd);
+			if (ev.xexpose.window == bar->wnd) {
+				Window focus;
+				int revert;
+				XGetInputFocus(dpy, &focus, &revert);
+				silly_refresh_bar(bar, focus);
+			}
 		} else if (ev.type == ButtonPress) {
 			int x = ev.xbutton.x, y = ev.xbutton.y;
 			swnd = silly_find_window(ev.xbutton.window);
@@ -481,7 +439,8 @@ int main(void) {
         } else if (ev.type == MotionNotify) {
 			int x = attr.x + ev.xbutton.x_root - start.x_root;
 			int y = attr.y + ev.xbutton.y_root - start.y_root;
-			silly_move_window(start.window, x, y);
+			swnd = silly_find_window(start.window);
+			if (swnd) silly_move_window(swnd, x, y);
 		} else if (ev.type == ButtonRelease) {
 			XUngrabPointer(dpy, CurrentTime);
 			start.window = None;
