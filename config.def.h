@@ -13,6 +13,7 @@
 #define WINDOW_BACK  0x282828
 
 #define MOD_MASK     Mod1Mask
+#define CURSOR       XC_X_cursor
 
 static char* font_name = "Liberation Mono:pixelsize=12:antialias=true:autohint=true";
 

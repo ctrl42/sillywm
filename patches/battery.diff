@@ -1,3 +1,16 @@
+--- config.def.h
++++ config.def.h
+@@ -14,6 +14,9 @@
+ 
+ #define MOD_MASK     Mod1Mask
+ #define CURSOR       XC_X_cursor
+
++// bar battery patch
++#define BATTERY_LOC  "/sys/class/power_supply/BAT1/capacity"
++
+ static char* font_name = "Liberation Mono:pixelsize=12:antialias=true:autohint=true";
+ 
+ static silly_exec launch_apps[] = {
 --- wm.c
 +++ wm.c
 @@ -34,6 +34,7 @@
@@ -12,7 +25,7 @@
  	XSelectInput(dpy, bar->wnd, ExposureMask);
  	XMapWindow(dpy, bar->wnd);
  	bar->gc = XCreateGC(dpy, bar->wnd, 0, NULL);
-+ 	bar->batt = open(BATTERY_LOC, O_RDONLY);
++	bar->batt = open(BATTERY_LOC, O_RDONLY);
  
  	return bar;
  }
@@ -46,15 +59,3 @@
  	free(bar);
  }
  
---- config.def.h
-+++ config.h
-@@ -14,6 +14,9 @@
- 
- #define MOD_MASK     Mod1Mask
- 
-+// bar battery patch
-+#define BATTERY_LOC  "/sys/class/power_supply/BAT1/capacity"
-+
- static char* font_name = "Liberation Mono:pixelsize=12:antialias=true:autohint=true";
- 
- static silly_exec launch_apps[] = {

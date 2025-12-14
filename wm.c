@@ -355,7 +355,7 @@ int main(void) {
 	XftColorAllocValue(dpy, vis, cmap, &text_fg, &ren_fg);
 
 	XSelectInput(dpy, root, SubstructureRedirectMask | SubstructureNotifyMask);
-	Cursor cur = XCreateFontCursor(dpy, XC_X_cursor);
+	Cursor cur = XCreateFontCursor(dpy, CURSOR);
 	XDefineCursor(dpy, root, cur);
 
 	XpmAttributes xpm_attr;
