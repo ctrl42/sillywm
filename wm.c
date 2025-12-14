@@ -2,6 +2,7 @@
 // by stx4
 
 #include <time.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -46,7 +47,7 @@ typedef struct silly_window {
 	int client_width, client_height;
 
 	silly_button close, minimize;
-	silly_button titlebar; // i know like wtf or smth
+	silly_button titlebar;
 
 	struct silly_window* next;
 } silly_window;
@@ -152,12 +153,18 @@ void silly_refresh_bar(silly_bar* bar, Window focus) {
 	if (!title) XFetchName(dpy, focus, &title);
 	XSetErrorHandler(h);
 
+	char bat_str[4]; // 0 - 100
+	int batt = open(BATTERY_LOC, O_RDONLY);
+	read(batt, &bat_str, 3);
+	for (int i = 0; i < 4; i++)
+		if (bat_str[i] < '0' || bat_str[i] > '9') bat_str[i] = 0;
+
 	char status[128];
 	sprintf(status,
-		"%02d:%02d | %02d/%02d/%02d | %d",
+		"%02d:%02d | %02d/%02d/%02d | %s%%",
 		tm->tm_hour, tm->tm_min,
 		tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900,
-		tm->tm_yday
+		bat_str
 	);
 	silly_draw_bar(bar, title ? title : "(desk)", status);
 	if (title) XFree(title);
@@ -193,6 +200,9 @@ silly_window* silly_find_window(Window wnd) {
 	return NULL;
 }
 
+// not yet defined
+void silly_move_window(silly_window* swnd, int x, int y);
+
 silly_window* silly_register_window(Window client) {
 	silly_window* swnd = calloc(1, sizeof(silly_window));
 	swnd->client = client;
@@ -203,7 +213,7 @@ silly_window* silly_register_window(Window client) {
 	XGetGeometry(dpy, swnd->client, &r, &x, &y, &client_width, &client_height, &borderw, &depth);
 
 	x = x != 0 ? x : DEFAULT_X;
-	y = MAX(BAR_HEIGHT, y != 0 ? y : DEFAULT_Y);
+	y = y != 0 ? y : DEFAULT_Y;
 
 	int border_width  = client_width  + (BORDER_EXT * 2);
 	int border_height = client_height + (BORDER_EXT * 2) + TITLE_HEIGHT + 1;
@@ -245,6 +255,7 @@ silly_window* silly_register_window(Window client) {
 
 	// border essentials 
 	swnd->border_gc = XCreateGC(dpy, swnd->border, 0, NULL);
+	silly_move_window(swnd, x, y);
 
 	swnd->next = current;
 	current = swnd;

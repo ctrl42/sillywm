@@ -1,0 +1,25 @@
+--- config.def.h
++++ config.h
+@@ -12,16 +12,22 @@
+ #define BORDER_DARK  0x3C3836
+ #define WINDOW_BACK  0x282828
+ 
+-#define MOD_MASK     Mod1Mask
++#define MOD_MASK     Mod4Mask
+ 
+-static char* font_name = "Liberation Mono:pixelsize=12:antialias=true:autohint=true";
++static char* font_name = "Fixedsys Excelsior:pixelsize=15:antialias=false";
++
+ static silly_exec launch_apps[] = {
+-	{ "st", (char* []){ "st", NULL } }
++	{ "picom",  NULL },
++	{ "xrdb",   (char* []){ "xrdb", "/home/stx/.Xresources", NULL } },
++	{ "feh",    (char* []){ "feh",  "--bg-fill", "/home/stx/.wm/cat.png", NULL } }
+ };
+ 
+ static silly_bind binds[] = {
+ 	{XK_Return, { "st", (char* []){ "st", NULL } } },
++	{XK_space,  { "dmenu_run", NULL } },
+ 	{XK_q, {NULL, NULL} }
+ };
+ 
