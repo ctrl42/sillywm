@@ -153,19 +153,12 @@ void silly_refresh_bar(silly_bar* bar, Window focus) {
 	if (!title) XFetchName(dpy, focus, &title);
 	XSetErrorHandler(h);
 
-	char bat_str[4]; // 0 - 100
-	int batt = open(BATTERY_LOC, O_RDONLY);
-	read(batt, &bat_str, 3);
-	for (int i = 0; i < 4; i++)
-		if (bat_str[i] < '0' || bat_str[i] > '9') bat_str[i] = 0;
-
 	char status[128];
 	sprintf(status,
-		"%02d:%02d | %02d/%02d/%02d | %d || %s%%",
+		"%02d:%02d | %02d/%02d/%02d | %d",
 		tm->tm_hour, tm->tm_min,
 		tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900,
-		tm->tm_yday,
-		bat_str
+		tm->tm_yday
 	);
 	silly_draw_bar(bar, title ? title : "(desk)", status);
 	if (title) XFree(title);
