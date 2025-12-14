@@ -18,8 +18,9 @@
  };
  
  static silly_bind binds[] = {
- 	{XK_Return, { "st", (char* []){ "st", NULL } } },
-+	{XK_space,  { "dmenu_run", NULL } },
+-	{XK_Return, { "st", (char* []){ "st", NULL } } },
++	{XK_Return, { "dmenu_run", NULL } },
++	{XK_t,      { "st", (char* []){ "st", NULL } } },
  	{XK_q, {NULL, NULL} }
  };
  
