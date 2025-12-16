@@ -308,7 +308,9 @@ void silly_move_window(silly_window* swnd, int x, int y) {
 }
 
 void silly_size_window(silly_window* swnd, int width, int height) {
-	return;
+	// TODO resize logic and recalculations
+	swnd->border_width  = width;
+	swnd->border_height = height;
 }
 
 void silly_redraw_borders(silly_window* swnd) {
