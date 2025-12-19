@@ -136,7 +136,7 @@ int CURSOR        = XC_X_cursor;
 
 #define SOCKET_BASE "/tmp/sillywm-%s.sock"
 #define CONF_NAME   ".sillyrc"
-char* font_name = "Fixedsys Excelsior:pixelsize=15:antialias=false";
+char* font_name = "Fixedsys Excelsior:pixelsize=16:antialias=false";
 /*
 char* font_name = "Liberation Mono:pixelsize=12:antialias=true:autohint=true"; // default
 */
