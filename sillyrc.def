@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# stx4's sillywm config
+# everything by... me. my wm so peak
+
+sillyc bind  Return "dmenu_run"   # launcher
+sillyc bind  t      "st"          # terminal
+sillyc bind  q      "QUITSILLYWM" # kill WM
+sillyc bind  k      "sillyc kill" # kill FOCUS
+
+sillyc start "picom"
+sillyc start "xrdb /home/stx/.Xresources"
+sillyc start "feh --bg-fill /home/stx/.wm/cat.png"

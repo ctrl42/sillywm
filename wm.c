@@ -3,23 +3,31 @@
 
 #include <time.h>
 #include <fcntl.h>
+#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <pthread.h>
+
+#include <sys/un.h>
+#include <sys/wait.h>
+#include <sys/socket.h>
+
 #include <X11/Xlib.h>
 #include <X11/xpm.h>
 #include <X11/cursorfont.h>
 #include <X11/Xft/Xft.h>
+
 #include <fontconfig/fontconfig.h>
+
+#include "ipc.h"
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
-typedef struct {
-	char* name;
-	char** argv;
-} silly_exec;
+// definition replaced
+typedef char* silly_exec;
 
 typedef struct {
 	int keycode;
@@ -29,6 +37,11 @@ typedef struct {
 typedef struct {
 	int x, y, w, h;
 } silly_button;
+
+typedef struct {
+	int head, max;
+	void* data; // reusable - cast
+} silly_vec;
 
 typedef struct {
 	Window wnd;
@@ -52,48 +65,148 @@ typedef struct silly_window {
 	struct silly_window* next;
 } silly_window;
 
-#include "config.h"
+static char* close_button_xpm[] = {
+	"18 18 2 1",
+	"X c #EBDBB2",
+	". c #3C3836",
+	"..................",
+	"..................",
+	"..................",
+	"..................",
+	"....XX......XX....",
+	"....XXX....XXX....",
+	".....XXX..XXX.....",
+	"......XXXXXX......",
+	".......XXXX.......",
+	".......XXXX.......",
+	"......XXXXXX......",
+	".....XXX..XXX.....",
+	"....XXX....XXX....",
+	"....XX......XX....",
+	"..................",
+	"..................",
+	"..................",
+	".................."
+};
 
-#define BAR_HEIGHT TITLE_HEIGHT + BORDER_EXT
+static char* minimize_button_xpm[] = {
+	"18 18 2 1",
+	"X c #EBDBB2",
+	". c #3C3836",
+	"..................",
+	"..................",
+	"..................",
+	"..................",
+	"..................",
+	"..................",
+	"..................",
+	".....XXXXXXXX.....",
+	"......XXXXXX......",
+	".......XXXX.......",
+	"........XX........",
+	"..................",
+	"..................",
+	"..................",
+	"..................",
+	"..................",
+	"..................",
+	".................."
+};
+
+float BAR_REFRESH =  2.0f;
+
+int TITLE_HEIGHT  = 18;
+int BAR_HEIGHT    = 22;
+int BUTTON_WIDTH  = 18;
+int BORDER_EXT    =  4;
+
+int EDGE_PADDING  = 10;
+int DEFAULT_X     = 10;
+int DEFAULT_Y     = 32;
+
+int TITLE_COLOR   = 0x282828;
+int BAR_TEXT      = 0xEBDBB2;
+int BORDER_COLOR  = 0x282828;
+int BORDER_DARK   = 0x3C3836;
+int WINDOW_BACK   = 0x282828;
+
+int MOD_MASK      = Mod4Mask;
+int CURSOR        = XC_X_cursor;
 #define BORDER_INNER (BORDER_EXT - 1)
 
+#define SOCKET_BASE "/tmp/sillywm-%s.sock"
+#define CONF_NAME   ".sillyrc"
+char* font_name = "Fixedsys Excelsior:pixelsize=15:antialias=false";
+/*
+char* font_name = "Liberation Mono:pixelsize=12:antialias=true:autohint=true"; // default
+*/
+
+#define BATTERY_LOC  "/sys/class/power_supply/BAT1/capacity"
+
 // mess (not sorry)
+int sockfd;
 Display* dpy;
 Window root;
+Window focus = None;
 XftFont* font;
-int scr, scr_w, scr_h;
-bool to_quit = false;
 XftColor ren_fg;
-silly_window* current = NULL;
+XRenderColor text_fg;
+bool to_quit = false;
+int scr, scr_w, scr_h;
+silly_vec binds;
+silly_window* current = NULL; // linked
 Pixmap close_pixmap,    close_mask;
 Pixmap minimize_pixmap, minimize_mask;
 
 static int error_pit(Display* dpy, XErrorEvent* e) { return 0; }
 
-XRenderColor text_fg = {
-	.red   = ((BAR_TEXT    >> 16) & 0xFF) * 257,
-	.green = ((BAR_TEXT    >>  8) & 0xFF) * 257,
-	.blue  = ((BAR_TEXT    >>  0) & 0xFF) * 257,
-	.alpha = 0xFFFF 
-};
-
-void silly_init_apps(void) {
-	for (int i = 0; i < (sizeof(launch_apps) / sizeof(launch_apps[0])); i++)
-		if (fork() == 0) execvp(launch_apps[i].name, launch_apps[i].argv);
+void vec_init(silly_vec* vec, int count, int size) {
+	memset(vec, 0, sizeof(silly_vec));
+	vec->head = 0;
+	vec->max  = count;
+	vec->data = malloc(size * count);
 }
 
-void silly_init_binds(void) {
-	for (int i = 0; i < sizeof(binds) / sizeof(binds[0]); i++)
-		XGrabKey(dpy, XKeysymToKeycode(dpy, binds[i].keycode), MOD_MASK, root, True, GrabModeAsync, GrabModeAsync);
+void vec_push(silly_vec* vec, void* data, int size) {
+	if (vec->head == vec->max) {
+		vec->max  *= 2;
+		vec->data = realloc(vec->data, size * vec->max);
+		if (!vec->data) { 
+			fprintf(stderr, "fatal: realloc failure\n");
+			exit(1);
+		}
+	}
+	memcpy((char*)vec->data + vec->head++ * size, data, size);
+}
+
+void silly_run(silly_exec app) {
+	if (fork() == 0) {
+		execlp("sh", "sh", "-c", app, NULL);
+		_exit(0);
+	}
+}
+
+void silly_init_bind(silly_bind bind) {
+	int keycode = XKeysymToKeycode(dpy, bind.keycode);
+	silly_bind* le_binds = (silly_bind*)binds.data;
+	for (int i = 0; i < binds.head; i++)
+		if (le_binds[i].keycode == bind.keycode) {
+			free(le_binds[i].app);
+			le_binds[i].app = bind.app; // lazy replacement
+			return;
+		}
+	// new key
+	XGrabKey(dpy, keycode, MOD_MASK, root, True, GrabModeAsync, GrabModeAsync);
+	vec_push(&binds, &bind, sizeof(silly_bind));
 }
 
 void silly_handle_bind(XKeyEvent* ev) {
 	KeySym sym = XLookupKeysym(ev, 0);
-	for (int i = 0; i < sizeof(binds) / sizeof(binds[0]); i++)
-		if (binds[i].keycode == sym) {
-			to_quit = (binds[i].app.name == NULL);
-			if (!to_quit && fork() == 0)
-				execvp(binds[i].app.name, binds[i].app.argv);
+	silly_bind* le_binds = (silly_bind*)binds.data;
+	for (int i = 0; i < binds.head; i++)
+		if (le_binds[i].keycode == sym) {
+			to_quit = (!strcmp(le_binds[i].app, "QUITSILLYWM"));
+			if (!to_quit) silly_run(le_binds[i].app);
 			return;
 		}
 }
@@ -263,8 +376,9 @@ void silly_roll_window(silly_window* swnd) {
 	int height = swnd->rolled ? BORDER_EXT + TITLE_HEIGHT + 1 : swnd->border_height;
 	XResizeWindow(dpy, swnd->border, swnd->border_width, height);
 
-	if (swnd->rolled) XSetInputFocus(dpy, root, None, CurrentTime);
-	else XSetInputFocus(dpy, swnd->client, RevertToPointerRoot, CurrentTime);
+	Window set = swnd->rolled ? None : swnd->client;
+	XSetInputFocus(dpy, root, set, CurrentTime);
+	focus = set;
 }
 
 void silly_unregister_window(Window wnd) {
@@ -339,7 +453,44 @@ void silly_redraw_borders(silly_window* swnd) {
 	XFillRectangle(dpy, swnd->border, swnd->border_gc, BORDER_EXT, BORDER_EXT + TITLE_HEIGHT + 1, swnd->client_width, swnd->client_height);
 }
 
-int main(void) {
+void silly_handle_ctl(int fd) {
+	char c;
+	char buf[MAX_IPC_SIZE];
+
+	read(fd, &buf, sizeof(silly_ctrl_command));
+	silly_ctrl_command* ctrl = (silly_ctrl_command*)buf;
+	char* data = buf + sizeof(silly_ctrl_command);
+
+	for (int i = 0; i < MAX_IPC_SIZE - sizeof(silly_ctrl_command); i++) {
+		read(fd, &c, 1);
+		buf[sizeof(silly_ctrl_command) + i] = c;
+		if (i >= ctrl->len) {
+			buf[sizeof(silly_ctrl_command) + i + 1] = 0;
+			break;
+		}
+	}
+		
+	switch (ctrl->cmd) {
+	case START: silly_run(data);
+	case BIND:  silly_init_bind((silly_bind){ ctrl->param1, strdup(data) });
+	case KILL:  close_window(focus);
+	}
+}
+
+void* silly_ctl_loop(void* arg) {
+	while (1) {
+		int datafd = accept(sockfd, NULL, NULL);
+		if (datafd > 0) {
+			fprintf(stderr, "accepted socket request\n");
+			silly_handle_ctl(datafd);
+			close(datafd);
+		}
+		if (to_quit) break;
+	}
+	return NULL;
+}
+
+int main(int argc, char* argv[], char* envp[]) {
 	dpy = XOpenDisplay(0);
 	if (!dpy) return 1;
 
@@ -347,6 +498,55 @@ int main(void) {
 	scr = DefaultScreen(dpy);
 	scr_w = DisplayWidth(dpy, scr);
 	scr_h = DisplayHeight(dpy, scr);
+
+	// init vectors
+	vec_init(&binds, 8, sizeof(silly_bind));
+
+	// initialize sillyc (ideally) socket
+	sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+
+	struct sockaddr_un addr;
+	addr.sun_family = AF_UNIX;
+
+	char sock_name[128];
+	sprintf(sock_name, SOCKET_BASE, getenv("DISPLAY"));
+	strcpy(addr.sun_path, sock_name);
+	
+	unlink(sock_name);
+	bind(sockfd, (struct sockaddr*)&addr, sizeof(addr));
+	listen(sockfd, 32);
+
+	int sock_flags = fcntl(sockfd, F_GETFL, 0);
+
+	// sillyc handler doesn't poke Xlib, safely throw off handler
+	// pro: this also starts handling while we parse ~/.sillyrc
+	pthread_t ctl_handler;
+	if (pthread_create(&ctl_handler, NULL, silly_ctl_loop, NULL)) {
+		perror("pthread");
+		fprintf(stderr, "pthread is fucking gay\n");
+		exit(1);
+	}
+
+	char* home = getenv("HOME");
+	if (home) {
+		char* combine = malloc(strlen(home) + strlen(CONF_NAME) + 2);
+		sprintf(combine, "%s/%s", home, CONF_NAME);
+		fprintf(stderr, "%s\n", combine);
+
+		pid_t config_pid;
+		posix_spawnp(&config_pid, combine, NULL, NULL, (char* []){ combine, NULL }, envp);
+		waitpid(config_pid, NULL, 0); // wait for all sillyc init cmds
+	
+		free(combine);
+	}
+
+	// return to regular wm activities
+	text_fg = (XRenderColor){
+		.red   = ((BAR_TEXT    >> 16) & 0xFF) * 257,
+		.green = ((BAR_TEXT    >>  8) & 0xFF) * 257,
+		.blue  = ((BAR_TEXT    >>  0) & 0xFF) * 257,
+		.alpha = 0xFFFF 
+	};
 
 	font = XftFontOpenName(dpy, scr, font_name);
 	if (!font) return 1; // install fixedsys brother
@@ -364,8 +564,6 @@ int main(void) {
 	XpmCreatePixmapFromData(dpy, root, close_button_xpm,    &close_pixmap,    &close_mask,    &xpm_attr);
 	XpmCreatePixmapFromData(dpy, root, minimize_button_xpm, &minimize_pixmap, &minimize_mask, &xpm_attr);
 
-	silly_init_binds();
-	silly_init_apps();
 	silly_bar* bar = silly_init_bar();
 	silly_refresh_bar(bar, None);
 
@@ -377,11 +575,9 @@ int main(void) {
 
 	time_t last_time = time(NULL), current_time;
 	while (1) {
+		// sillybar
 		current_time = time(NULL);
-		if (difftime(current_time, last_time) >= 2.0) { // 30 updates/min
-			Window focus;
-			int revert;
-			XGetInputFocus(dpy, &focus, &revert);
+		if (difftime(current_time, last_time) >= BAR_REFRESH) {
 			silly_refresh_bar(bar, focus);
 			last_time = current_time;
 		}
@@ -389,9 +585,7 @@ int main(void) {
         if (!XPending(dpy)) { usleep(500); continue; }; // reduce load
 		XNextEvent(dpy, &ev);
 		if (ev.type == MapRequest) {
-			swnd = NULL;
 			swnd = silly_find_window(ev.xmaprequest.window);
-
 			if (!swnd) {
 				XWindowAttributes map_attr;
 				XGetWindowAttributes(dpy, ev.xmaprequest.window, &map_attr);
@@ -400,8 +594,9 @@ int main(void) {
 					silly_redraw_borders(swnd); // initial draw
 				}
 			}
-			XSetInputFocus(dpy, swnd->client, RevertToPointerRoot, CurrentTime);
-			silly_refresh_bar(bar, swnd->client);
+			focus = swnd->client;
+			XSetInputFocus(dpy, focus, RevertToPointerRoot, CurrentTime);
+			silly_refresh_bar(bar, focus);
 		} else if (ev.type == UnmapNotify || ev.type == DestroyNotify) {
 			swnd = silly_find_window(ev.xunmap.window);
 			if (swnd && !swnd->rolled)
@@ -410,12 +605,7 @@ int main(void) {
 		} else if (ev.type == Expose) {
 			swnd = silly_find_window(ev.xexpose.window);
 			if (swnd && ev.xexpose.window == swnd->border) silly_redraw_borders(swnd);
-			if (ev.xexpose.window == bar->wnd) {
-				Window focus;
-				int revert;
-				XGetInputFocus(dpy, &focus, &revert);
-				silly_refresh_bar(bar, focus);
-			}
+			if (ev.xexpose.window == bar->wnd) silly_refresh_bar(bar, focus);
 		} else if (ev.type == ButtonPress) {
 			int x = ev.xbutton.x, y = ev.xbutton.y;
 			swnd = silly_find_window(ev.xbutton.window);
@@ -425,8 +615,9 @@ int main(void) {
 				XWindowAttributes client_attr;
 				XGetWindowAttributes(dpy, swnd->client, &client_attr);
 				if (client_attr.map_state == IsViewable) {
-					XSetInputFocus(dpy, swnd->client, RevertToPointerRoot, CurrentTime);
-					silly_refresh_bar(bar, swnd->client);
+					focus = swnd->client;
+					XSetInputFocus(dpy, focus, RevertToPointerRoot, CurrentTime);
+					silly_refresh_bar(bar, focus);
 				}
 			}
 
@@ -456,6 +647,10 @@ int main(void) {
 		if (to_quit) break;
 		swnd = NULL;
     }
+
+	// shutdown server
+	close(sockfd);
+	unlink(sock_name);
 
 	XFreeCursor(dpy, cur);
 	XUngrabKeyboard(dpy, CurrentTime);
