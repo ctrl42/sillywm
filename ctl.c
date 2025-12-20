@@ -1,3 +1,5 @@
+#define  VERSION "0.1"
+
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,13 +29,13 @@ void silly_send_ctrl(silly_cmdop cmd, int param1, int param2, char* data) {
 
 void print_help(void) {
 	char* help[] = {
-		"sillyc configurator 0.1",
+		"sillyc configurator " VERSION,
 		"by stx4.",
 		""
 		"we're currently undocumented. here's some examples instead:",
 		"sillyc rc    ~/.sillyrc",
 		"",
-		"sillyc set   border_width 8"
+		"sillyc set   border_width 8",
 		"sillyc size  +50 +50  (additive move to active)",
 		"sillyc move  40 40    (absolute move to active)",
 		"sillyc bind  Return \"dmenu-run\"",

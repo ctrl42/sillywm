@@ -26,12 +26,9 @@
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
-// definition replaced
-typedef char* silly_exec;
-
 typedef struct {
 	int keycode;
-	silly_exec app;
+	char* app;
 } silly_bind;
 
 typedef struct {
@@ -40,13 +37,14 @@ typedef struct {
 
 typedef struct {
 	int head, max;
-	void* data; // reusable - cast
+	void* data; // reusable
 } silly_vec;
 
 typedef struct {
 	Window wnd;
 	XftDraw* xftdraw;
 	GC gc;
+	int batt;
 } silly_bar;
 
 typedef struct silly_window {
@@ -145,6 +143,7 @@ char* font_name = "Liberation Mono:pixelsize=12:antialias=true:autohint=true"; /
 
 // mess (not sorry)
 int sockfd;
+char** globenvp;
 Display* dpy;
 Window root;
 Window focus = None;
@@ -179,11 +178,9 @@ void vec_push(silly_vec* vec, void* data, int size) {
 	memcpy((char*)vec->data + vec->head++ * size, data, size);
 }
 
-void silly_run(silly_exec app) {
-	if (fork() == 0) {
-		execlp("sh", "sh", "-c", app, NULL);
-		_exit(0);
-	}
+void silly_run(char* app) {
+	pid_t pid;
+	posix_spawnp(&pid, "/bin/sh", NULL, NULL, (char* []){ "sh", "-c", app, NULL }, globenvp);
 }
 
 void silly_init_bind(silly_bind bind) {
@@ -227,6 +224,7 @@ silly_bar* silly_init_bar(void) {
 	XSelectInput(dpy, bar->wnd, ExposureMask);
 	XMapWindow(dpy, bar->wnd);
 	bar->gc = XCreateGC(dpy, bar->wnd, 0, NULL);
+	bar->batt = open(BATTERY_LOC, O_RDONLY);
 
 	return bar;
 }
@@ -266,11 +264,18 @@ void silly_refresh_bar(silly_bar* bar, Window focus) {
 	if (!title) XFetchName(dpy, focus, &title);
 	XSetErrorHandler(h);
 
+	char bat_str[4]; // 0 - 100
+	lseek(bar->batt, 0, SEEK_SET);
+	read(bar->batt, &bat_str, 3);
+	for (int i = 0; i < 4; i++)
+		if (bat_str[i] < '0' || bat_str[i] > '9') bat_str[i] = 0;
+
 	char status[128];
 	sprintf(status,
-		"%02d:%02d %02d/%02d/%02d",
+		"%02d:%02d %02d/%02d/%02d | %s%%",
 		tm->tm_hour, tm->tm_min,
-		tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900
+		tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900,
+		bat_str
 	);
 	silly_draw_bar(bar, title ? title : "(desk)", status);
 	if (title) XFree(title);
@@ -279,6 +284,7 @@ void silly_refresh_bar(silly_bar* bar, Window focus) {
 void silly_destroy_bar(silly_bar* bar) {
 	XFreeGC(dpy, bar->gc);
 	XDestroyWindow(dpy, bar->wnd);
+	close(bar->batt);
 	free(bar);
 }
 
@@ -307,7 +313,13 @@ silly_window* silly_find_window(Window wnd) {
 }
 
 // not yet defined
+void silly_unregister_window(silly_window* swnd);
 void silly_move_window(silly_window* swnd, int x, int y);
+
+void silly_close_window(silly_window* swnd) {
+	close_window(swnd->client);
+	if (swnd->rolled) silly_unregister_window(swnd);
+}
 
 silly_window* silly_register_window(Window client) {
 	silly_window* swnd = calloc(1, sizeof(silly_window));
@@ -381,10 +393,8 @@ void silly_roll_window(silly_window* swnd) {
 	focus = set;
 }
 
-void silly_unregister_window(Window wnd) {
-	silly_window* swnd = silly_find_window(wnd);
+void silly_unregister_window(silly_window* swnd) {
 	if (!swnd) return;
-
 	if (current == swnd) {
 		current = swnd->next;
 	} else {
@@ -471,9 +481,15 @@ void silly_handle_ctl(int fd) {
 	}
 		
 	switch (ctrl->cmd) {
-	case START: silly_run(data);
-	case BIND:  silly_init_bind((silly_bind){ ctrl->param1, strdup(data) });
-	case KILL:  close_window(focus);
+	case START:
+		silly_run(data);
+		break;
+	case BIND:
+		silly_init_bind((silly_bind){ ctrl->param1, strdup(data) });
+		break;
+	case KILL:
+		close_window(focus);
+		break;
 	}
 }
 
@@ -493,6 +509,8 @@ void* silly_ctl_loop(void* arg) {
 int main(int argc, char* argv[], char* envp[]) {
 	dpy = XOpenDisplay(0);
 	if (!dpy) return 1;
+
+	globenvp = envp;
 
 	root = DefaultRootWindow(dpy);
 	scr = DefaultScreen(dpy);
@@ -599,8 +617,7 @@ int main(int argc, char* argv[], char* envp[]) {
 			silly_refresh_bar(bar, focus);
 		} else if (ev.type == UnmapNotify || ev.type == DestroyNotify) {
 			swnd = silly_find_window(ev.xunmap.window);
-			if (swnd && !swnd->rolled)
-				silly_unregister_window(ev.xunmap.window);
+			if (swnd && !swnd->rolled) silly_unregister_window(swnd);
 			silly_refresh_bar(bar, None);
 		} else if (ev.type == Expose) {
 			swnd = silly_find_window(ev.xexpose.window);
@@ -622,8 +639,7 @@ int main(int argc, char* argv[], char* envp[]) {
 			}
 
 			if (swnd && silly_button_inside(x, y, &swnd->close)) {
-				if (swnd->rolled) XMapWindow(dpy, swnd->client);
-				close_window(swnd->client);
+				silly_close_window(swnd);
 			} else if (swnd && silly_button_inside(x, y, &swnd->minimize)) {
 				silly_roll_window(swnd);
 				silly_refresh_bar(bar, swnd->rolled ? None : swnd->client);
