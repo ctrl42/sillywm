@@ -526,7 +526,6 @@ void* silly_ctl_loop(void* arg) {
 	while (1) {
 		int datafd = accept(sockfd, NULL, NULL);
 		if (datafd > 0) {
-			fprintf(stderr, "accepted socket request\n");
 			silly_handle_ctl(datafd);
 			close(datafd);
 		}
