@@ -121,6 +121,7 @@ int BORDER_EXT    =  4;
 int EDGE_PADDING  = 10;
 int DEFAULT_X     = 10;
 int DEFAULT_Y     = 32;
+int MIN_SIZE      = 64;
 
 int TITLE_COLOR   = 0x282828;
 int BAR_TEXT      = 0xEBDBB2;
@@ -319,6 +320,7 @@ void silly_move_window(silly_window* swnd, int x, int y);
 void silly_close_window(silly_window* swnd) {
 	close_window(swnd->client);
 	if (swnd->rolled) silly_unregister_window(swnd);
+	focus = None;
 }
 
 silly_window* silly_register_window(Window client) {
@@ -432,9 +434,21 @@ void silly_move_window(silly_window* swnd, int x, int y) {
 }
 
 void silly_size_window(silly_window* swnd, int width, int height) {
-	// TODO resize logic and recalculations
-	swnd->border_width  = width;
-	swnd->border_height = height;
+	swnd->client_width  = MAX(MIN_SIZE, width);
+	swnd->client_height = MAX(MIN_SIZE, height);
+
+	swnd->border_width  = swnd->client_width  + (BORDER_EXT * 2);
+	swnd->border_height = swnd->client_height + (BORDER_EXT * 2)
+		+ TITLE_HEIGHT + 1;
+
+	swnd->close    = (silly_button){ BORDER_EXT, BORDER_EXT, BUTTON_WIDTH, TITLE_HEIGHT };
+	swnd->minimize = (silly_button){ swnd->border_width - BORDER_EXT - BUTTON_WIDTH, BORDER_EXT, BUTTON_WIDTH, TITLE_HEIGHT };
+	swnd->titlebar = (silly_button){ BORDER_EXT + BUTTON_WIDTH, BORDER_EXT, swnd->client_width - (BUTTON_WIDTH * 2) - 2, TITLE_HEIGHT };
+
+	XResizeWindow(dpy, swnd->client,
+		swnd->client_width, swnd->client_height);
+	XResizeWindow(dpy, swnd->border,
+		swnd->border_width, swnd->border_height);
 }
 
 void silly_redraw_borders(silly_window* swnd) {
@@ -488,8 +502,33 @@ void silly_handle_ctl(int fd) {
 		silly_init_bind((silly_bind){ ctrl->param1, strdup(data) });
 		break;
 	case KILL:
+		if (focus == None) break;
 		close_window(focus);
+		focus = None;
 		break;
+	case MOVE: {
+		silly_window* swnd = silly_find_window(focus);
+		if (!swnd) break;
+
+		int rel_x = (int)*data & (1 << 0);
+		int rel_y = (int)*data & (1 << 1);
+		int x     = ctrl->param1 + (rel_x ? swnd->border_x : 0);
+		int y     = ctrl->param2 + (rel_y ? swnd->border_y : 0);
+		silly_move_window(swnd, x, y);
+		break;
+	}
+	case SIZE: {
+		silly_window* swnd = silly_find_window(focus);
+		if (!swnd) break;
+
+		int rel_w = (int)*data & (1 << 0);
+		int rel_h = (int)*data & (1 << 1);
+		int w     = ctrl->param1 + (rel_w ? swnd->client_width  : 0);
+		int h     = ctrl->param2 + (rel_h ? swnd->client_height : 0);
+		silly_size_window(swnd, w, h);
+		break;
+
+	}
 	}
 }
 
@@ -663,6 +702,13 @@ int main(int argc, char* argv[], char* envp[]) {
 		if (to_quit) break;
 		swnd = NULL;
     }
+
+	swnd = current;
+	while (swnd) {
+		silly_window* next = swnd->next;
+		silly_unregister_window(swnd);
+		swnd = next;
+	}
 
 	// shutdown server
 	close(sockfd);
