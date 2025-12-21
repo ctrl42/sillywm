@@ -690,14 +690,7 @@ int main(int argc, char* argv[], char* envp[]) {
 		
 		if (to_quit) break;
 		swnd = NULL;
-    }
-
-	swnd = current;
-	while (swnd) {
-		silly_window* next = swnd->next;
-		silly_unregister_window(swnd);
-		swnd = next;
-	}
+    }	
 
 	// shutdown server
 	close(sockfd);
