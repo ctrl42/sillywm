@@ -114,23 +114,24 @@ float BAR_REFRESH =  2.0f;
 
 int TITLE_HEIGHT  = 18;
 int BAR_HEIGHT    = 22;
-int BUTTON_WIDTH  = 18;
-int BORDER_EXT    =  4;
+int BUTTON_SIZE   = 18;
+int BORDER_SIZE   =  4;
 
 int EDGE_PADDING  = 10;
 int DEFAULT_X     = 10;
 int DEFAULT_Y     = 32;
 int MIN_SIZE      = 64;
 
-int TITLE_COLOR   = 0x282828;
+int TITLE_BG      = 0x282828;
 int BAR_TEXT      = 0xEBDBB2;
-int BORDER_COLOR  = 0x282828;
-int BORDER_DARK   = 0x3C3836;
-int WINDOW_BACK   = 0x282828;
+int BAR_BG        = 0x282828;
+int BORDER_BG     = 0x282828;
+int BORDER_EDGE   = 0x3C3836;
+int WINDOW_BG     = 0x282828;
 
 int MOD_MASK      = Mod4Mask;
 int CURSOR        = XC_X_cursor;
-#define BORDER_INNER (BORDER_EXT - 1)
+#define BORDER_INNER (BORDER_SIZE - 1)
 
 #define SOCKET_BASE "/tmp/sillywm-%s.sock"
 #define CONF_NAME   ".sillyrc"
@@ -214,7 +215,7 @@ silly_bar* silly_init_bar(void) {
 	bar->wnd = XCreateSimpleWindow(
 		dpy, root,
 		0, 0, scr_w, BAR_HEIGHT,
-		0, 0, TITLE_COLOR
+		0, 0, BAR_BG
 	);
 	bar->xftdraw = XftDrawCreate(
 		dpy, bar->wnd,
@@ -229,19 +230,19 @@ silly_bar* silly_init_bar(void) {
 }
 
 void silly_draw_bar(silly_bar* bar, char* title, char* status) {
-	XSetForeground(dpy, bar->gc, TITLE_COLOR);
+	XSetForeground(dpy, bar->gc, BAR_BG);
 	XFillRectangle(dpy, bar->wnd, bar->gc, 0, 0, scr_w, BAR_HEIGHT);
 
-	XSetForeground(dpy, bar->gc, BORDER_COLOR);
-	XFillRectangle(dpy, bar->wnd, bar->gc, 0, BAR_HEIGHT - BORDER_EXT, scr_w, BAR_HEIGHT - BORDER_EXT);
+	XSetForeground(dpy, bar->gc, BORDER_BG);
+	XFillRectangle(dpy, bar->wnd, bar->gc, 0, BAR_HEIGHT - BORDER_SIZE, scr_w, BAR_HEIGHT - BORDER_SIZE);
 
 	XGlyphInfo extents;
 	XftTextExtentsUtf8(dpy, font, (FcChar8*)status, strlen(status), &extents);
 	XftDrawStringUtf8(bar->xftdraw, &ren_fg, font, 5, (BAR_HEIGHT + 4) / 2, (FcChar8*)title, strlen(title));
 	XftDrawStringUtf8(bar->xftdraw, &ren_fg, font, scr_w - extents.width - 5, (BAR_HEIGHT + 4) / 2, (FcChar8*)status, strlen(status));
 
-	XSetForeground(dpy, bar->gc, BORDER_DARK);
-	XDrawLine(dpy, bar->wnd, bar->gc, 0, BAR_HEIGHT - BORDER_EXT, scr_w, BAR_HEIGHT - BORDER_EXT);
+	XSetForeground(dpy, bar->gc, BORDER_EDGE);
+	XDrawLine(dpy, bar->wnd, bar->gc, 0, BAR_HEIGHT - BORDER_SIZE, scr_w, BAR_HEIGHT - BORDER_SIZE);
 	XDrawLine(dpy, bar->wnd, bar->gc, 0, BAR_HEIGHT - 1, scr_w, BAR_HEIGHT - 1);
 }
 
@@ -325,8 +326,8 @@ silly_window* silly_register_window(Window client) {
 	x = x != 0 ? x : DEFAULT_X;
 	y = y != 0 ? y : DEFAULT_Y;
 
-	int border_width  = client_width  + (BORDER_EXT * 2);
-	int border_height = client_height + (BORDER_EXT * 2) + TITLE_HEIGHT + 1;
+	int border_width  = client_width  + (BORDER_SIZE * 2);
+	int border_height = client_height + (BORDER_SIZE * 2) + TITLE_HEIGHT + 1;
 
 	swnd->rolled = false;
 	
@@ -339,12 +340,12 @@ silly_window* silly_register_window(Window client) {
 	swnd->border_width  = border_width;
 	swnd->border_height = border_height;
 
-	swnd->close    = (silly_button){ BORDER_EXT, BORDER_EXT, BUTTON_WIDTH, TITLE_HEIGHT };
-	swnd->minimize = (silly_button){ swnd->border_width - BORDER_EXT - BUTTON_WIDTH, BORDER_EXT, BUTTON_WIDTH, TITLE_HEIGHT };
-	swnd->titlebar = (silly_button){ BORDER_EXT + BUTTON_WIDTH, BORDER_EXT, swnd->client_width - (BUTTON_WIDTH * 2) - 2, TITLE_HEIGHT };
+	swnd->close    = (silly_button){ BORDER_SIZE, BORDER_SIZE, BUTTON_SIZE, TITLE_HEIGHT };
+	swnd->minimize = (silly_button){ swnd->border_width - BORDER_SIZE - BUTTON_SIZE, BORDER_SIZE, BUTTON_SIZE, TITLE_HEIGHT };
+	swnd->titlebar = (silly_button){ BORDER_SIZE + BUTTON_SIZE, BORDER_SIZE, swnd->client_width - (BUTTON_SIZE * 2) - 2, TITLE_HEIGHT };
 
-	swnd->border = XCreateSimpleWindow(dpy, root, x, y, border_width, border_height, 0, 0, BORDER_COLOR);
-	XReparentWindow(dpy, swnd->client, swnd->border, BORDER_EXT, BORDER_EXT + TITLE_HEIGHT + 1);
+	swnd->border = XCreateSimpleWindow(dpy, root, x, y, border_width, border_height, 0, 0, BORDER_BG);
+	XReparentWindow(dpy, swnd->client, swnd->border, BORDER_SIZE, BORDER_SIZE + TITLE_HEIGHT + 1);
 
 	// spawn em
 	XMapWindow(dpy, swnd->client);
@@ -377,7 +378,7 @@ void silly_roll_window(silly_window* swnd) {
 	swnd->rolled = !swnd->rolled;
 	if (swnd->rolled) XUnmapWindow(dpy, swnd->client);
 	else XMapWindow(dpy, swnd->client);
-	int height = swnd->rolled ? BORDER_EXT + TITLE_HEIGHT + 1 : swnd->border_height;
+	int height = swnd->rolled ? BORDER_SIZE + TITLE_HEIGHT + 1 : swnd->border_height;
 	XResizeWindow(dpy, swnd->border, swnd->border_width, height);
 
 	Window set = swnd->rolled ? None : swnd->client;
@@ -401,7 +402,7 @@ unmap:
 	XErrorHandler h = XSetErrorHandler(error_pit);
 	XWindowAttributes attr;
 	if (XGetWindowAttributes(dpy, swnd->client, &attr) && attr.map_state == IsViewable)
-		XReparentWindow(dpy, swnd->client, DefaultRootWindow(dpy), BORDER_EXT, BAR_HEIGHT + BORDER_EXT);
+		XReparentWindow(dpy, swnd->client, DefaultRootWindow(dpy), BORDER_SIZE, BAR_HEIGHT + BORDER_SIZE);
 	XDestroyWindow(dpy, swnd->border);
 	XSetErrorHandler(h);
 
@@ -412,7 +413,7 @@ unmap:
 void silly_move_window(silly_window* swnd, int x, int y) {
 	if (swnd->rolled) {
 		x = MAX(EDGE_PADDING, MIN(x, scr_w - EDGE_PADDING - swnd->border_width));
-		y = MAX(BAR_HEIGHT + EDGE_PADDING, MIN(y, scr_h - EDGE_PADDING - (BORDER_EXT + TITLE_HEIGHT + 1)));
+		y = MAX(BAR_HEIGHT + EDGE_PADDING, MIN(y, scr_h - EDGE_PADDING - (BORDER_SIZE + TITLE_HEIGHT + 1)));
 	} else {
 		x = MAX(EDGE_PADDING, MIN(x, scr_w - EDGE_PADDING - swnd->border_width)); 
 		y = MAX(BAR_HEIGHT + EDGE_PADDING, MIN(y, scr_h - EDGE_PADDING - swnd->border_height));
@@ -427,13 +428,13 @@ void silly_size_window(silly_window* swnd, int width, int height) {
 	swnd->client_width  = MAX(MIN_SIZE, width);
 	swnd->client_height = MAX(MIN_SIZE, height);
 
-	swnd->border_width  = swnd->client_width  + (BORDER_EXT * 2);
-	swnd->border_height = swnd->client_height + (BORDER_EXT * 2)
+	swnd->border_width  = swnd->client_width  + (BORDER_SIZE * 2);
+	swnd->border_height = swnd->client_height + (BORDER_SIZE * 2)
 		+ TITLE_HEIGHT + 1;
 
-	swnd->close    = (silly_button){ BORDER_EXT, BORDER_EXT, BUTTON_WIDTH, TITLE_HEIGHT };
-	swnd->minimize = (silly_button){ swnd->border_width - BORDER_EXT - BUTTON_WIDTH, BORDER_EXT, BUTTON_WIDTH, TITLE_HEIGHT };
-	swnd->titlebar = (silly_button){ BORDER_EXT + BUTTON_WIDTH, BORDER_EXT, swnd->client_width - (BUTTON_WIDTH * 2) - 2, TITLE_HEIGHT };
+	swnd->close    = (silly_button){ BORDER_SIZE, BORDER_SIZE, BUTTON_SIZE, TITLE_HEIGHT };
+	swnd->minimize = (silly_button){ swnd->border_width - BORDER_SIZE - BUTTON_SIZE, BORDER_SIZE, BUTTON_SIZE, TITLE_HEIGHT };
+	swnd->titlebar = (silly_button){ BORDER_SIZE + BUTTON_SIZE, BORDER_SIZE, swnd->client_width - (BUTTON_SIZE * 2) - 2, TITLE_HEIGHT };
 
 	XResizeWindow(dpy, swnd->client,
 		swnd->client_width, swnd->client_height);
@@ -443,28 +444,28 @@ void silly_size_window(silly_window* swnd, int width, int height) {
 
 void silly_redraw_borders(silly_window* swnd) {
 	// title block
-	XSetForeground(dpy, swnd->border_gc, TITLE_COLOR);
-	XFillRectangle(dpy, swnd->border, swnd->border_gc, BORDER_EXT, BORDER_EXT, swnd->client_width, TITLE_HEIGHT);
+	XSetForeground(dpy, swnd->border_gc, TITLE_BG);
+	XFillRectangle(dpy, swnd->border, swnd->border_gc, BORDER_SIZE, BORDER_SIZE, swnd->client_width, TITLE_HEIGHT);
 
 	// borders
-	XSetForeground(dpy, swnd->border_gc, BORDER_DARK); 
+	XSetForeground(dpy, swnd->border_gc, BORDER_EDGE); 
 	XDrawRectangle(dpy, swnd->border, swnd->border_gc, 0, 0, swnd->border_width - 1, swnd->border_height - 1); // border rectangle 
 	XDrawRectangle(dpy, swnd->border, swnd->border_gc, BORDER_INNER, BORDER_INNER,
 		swnd->border_width - (BORDER_INNER * 2) - 1, swnd->border_height - (BORDER_INNER * 2) - 1); // client inner rectangle	
 
 	// border lines
-	XDrawLine(dpy, swnd->border, swnd->border_gc, 0, BORDER_EXT + TITLE_HEIGHT, swnd->border_width, BORDER_EXT + TITLE_HEIGHT);
-	XDrawLine(dpy, swnd->border, swnd->border_gc, 0, swnd->border_height - BORDER_EXT - BUTTON_WIDTH, swnd->border_width, swnd->border_height - BORDER_EXT - BUTTON_WIDTH);
-	XDrawLine(dpy, swnd->border, swnd->border_gc, BORDER_EXT + BUTTON_WIDTH, 0, BORDER_EXT + BUTTON_WIDTH, swnd->border_height);
-	XDrawLine(dpy, swnd->border, swnd->border_gc, swnd->border_width - BORDER_EXT - 1 - BUTTON_WIDTH, 0, swnd->border_width - BORDER_EXT - BUTTON_WIDTH, swnd->border_height);
+	XDrawLine(dpy, swnd->border, swnd->border_gc, 0, BORDER_SIZE + TITLE_HEIGHT, swnd->border_width, BORDER_SIZE + TITLE_HEIGHT);
+	XDrawLine(dpy, swnd->border, swnd->border_gc, 0, swnd->border_height - BORDER_SIZE - BUTTON_SIZE, swnd->border_width, swnd->border_height - BORDER_SIZE - BUTTON_SIZE);
+	XDrawLine(dpy, swnd->border, swnd->border_gc, BORDER_SIZE + BUTTON_SIZE, 0, BORDER_SIZE + BUTTON_SIZE, swnd->border_height);
+	XDrawLine(dpy, swnd->border, swnd->border_gc, swnd->border_width - BORDER_SIZE - 1 - BUTTON_SIZE, 0, swnd->border_width - BORDER_SIZE - BUTTON_SIZE, swnd->border_height);
 
 	// button pixmaps
-	XCopyArea(dpy, close_pixmap,    swnd->border, swnd->border_gc, 0, 0, 18, 18, BORDER_EXT, BORDER_EXT);
-	XCopyArea(dpy, minimize_pixmap, swnd->border, swnd->border_gc, 0, 0, 18, 18, swnd->border_width - BORDER_EXT - 18, BORDER_EXT);
+	XCopyArea(dpy, close_pixmap,    swnd->border, swnd->border_gc, 0, 0, BUTTON_SIZE, BUTTON_SIZE, BORDER_SIZE, BORDER_SIZE);
+	XCopyArea(dpy, minimize_pixmap, swnd->border, swnd->border_gc, 0, 0, BUTTON_SIZE, BUTTON_SIZE, swnd->border_width - BORDER_SIZE - BUTTON_SIZE, BORDER_SIZE);
 
 	// clear background
-	XSetForeground(dpy, swnd->border_gc, WINDOW_BACK);
-	XFillRectangle(dpy, swnd->border, swnd->border_gc, BORDER_EXT, BORDER_EXT + TITLE_HEIGHT + 1, swnd->client_width, swnd->client_height);
+	XSetForeground(dpy, swnd->border_gc, WINDOW_BG);
+	XFillRectangle(dpy, swnd->border, swnd->border_gc, BORDER_SIZE, BORDER_SIZE + TITLE_HEIGHT + 1, swnd->client_width, swnd->client_height);
 }
 
 void silly_handle_ctl(int fd) {
