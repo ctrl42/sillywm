@@ -44,6 +44,7 @@ typedef struct {
 	Window wnd;
 	XftDraw* xftdraw;
 	GC gc;
+	int batt;
 } silly_bar;
 
 typedef struct silly_window {
@@ -180,6 +181,7 @@ silly_bar* silly_init_bar(void) {
 	XSelectInput(dpy, bar->wnd, ExposureMask);
 	XMapWindow(dpy, bar->wnd);
 	bar->gc = XCreateGC(dpy, bar->wnd, 0, NULL);
+	bar->batt = open(BATTERY_LOC, O_RDONLY);
 
 	return bar;
 }
@@ -219,11 +221,18 @@ void silly_refresh_bar(silly_bar* bar, Window focus) {
 	if (!title) XFetchName(dpy, focus, &title);
 	XSetErrorHandler(h);
 
+	char bat_str[4]; // 0 - 100
+	lseek(bar->batt, 0, SEEK_SET);
+	read(bar->batt, &bat_str, 3);
+	for (int i = 0; i < 4; i++)
+		if (bat_str[i] < '0' || bat_str[i] > '9') bat_str[i] = 0;
+
 	char status[128];
 	sprintf(status,
-		"%02d:%02d %02d/%02d/%02d",
+		"%02d:%02d %02d/%02d/%02d | %s%%",
 		tm->tm_hour, tm->tm_min,
-		tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900
+		tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900,
+		bat_str
 	);
 	silly_draw_bar(bar, title ? title : "(desk)", status);
 	if (title) XFree(title);
@@ -232,6 +241,7 @@ void silly_refresh_bar(silly_bar* bar, Window focus) {
 void silly_destroy_bar(silly_bar* bar) {
 	XFreeGC(dpy, bar->gc);
 	XDestroyWindow(dpy, bar->wnd);
+	close(bar->batt);
 	free(bar);
 }
 
@@ -573,7 +583,7 @@ int main(void) {
 	silly_window* swnd;
 
 	time_t last_time = time(NULL), current_time;
-	while (1) {
+	while (!to_quit) {
 		// sillybar
 		current_time = time(NULL);
 		if (difftime(current_time, last_time) >= BAR_REFRESH) {
@@ -640,7 +650,6 @@ int main(void) {
 			start.window = None;
 		}
 
-		if (to_quit) break;
 		swnd = NULL;
     }	
 
