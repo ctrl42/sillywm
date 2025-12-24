@@ -1,5 +1,0 @@
-#!/bin/sh
-# minimum viable sillywm config
-
-sillyc bind  t  "st"
-sillyc bind  q  "QUITSILLYWM"

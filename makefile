@@ -10,7 +10,7 @@ sillywm: wm.c ipc.h
 sillyc: ctl.c ipc.h
 	@$(CC) $< -o $@ $(CFLAGS)
 
-install: sillywm
+install: sillywm sillyc
 	@mkdir -p $(PREFIX)/bin
 	@cp sillywm $(PREFIX)/bin/
 	@cp sillyc $(PREFIX)/bin/
