@@ -143,8 +143,9 @@ char* font_name = "Liberation Mono:pixelsize=12:antialias=true:autohint=true"; /
 #define BATTERY_LOC  "/sys/class/power_supply/BAT1/capacity"
 
 // mess (not sorry)
+extern char** environ;
+
 int sockfd;
-char** globenvp;
 Display* dpy;
 Window root;
 Window focus = None;
@@ -153,60 +154,14 @@ XftColor ren_fg;
 XRenderColor text_fg;
 bool to_quit = false;
 int scr, scr_w, scr_h;
-silly_vec binds;
-silly_window* current = NULL; // linked
+silly_window* current = NULL;
 Pixmap close_pixmap,    close_mask;
 Pixmap minimize_pixmap, minimize_mask;
 
 static int error_pit(Display* dpy, XErrorEvent* e) { return 0; }
 
-void vec_init(silly_vec* vec, int count, int size) {
-	memset(vec, 0, sizeof(silly_vec));
-	vec->head = 0;
-	vec->max  = count;
-	vec->data = malloc(size * count);
-}
-
-void vec_push(silly_vec* vec, void* data, int size) {
-	if (vec->head == vec->max) {
-		vec->max  *= 2;
-		vec->data = realloc(vec->data, size * vec->max);
-		if (!vec->data) { 
-			fprintf(stderr, "fatal: realloc failure\n");
-			exit(1);
-		}
-	}
-	memcpy((char*)vec->data + vec->head++ * size, data, size);
-}
-
 void silly_run(char* app) {
-	pid_t pid;
-	posix_spawnp(&pid, "/bin/sh", NULL, NULL, (char* []){ "sh", "-c", app, NULL }, globenvp);
-}
-
-void silly_init_bind(silly_bind bind) {
-	int keycode = XKeysymToKeycode(dpy, bind.keycode);
-	silly_bind* le_binds = (silly_bind*)binds.data;
-	for (int i = 0; i < binds.head; i++)
-		if (le_binds[i].keycode == bind.keycode) {
-			free(le_binds[i].app);
-			le_binds[i].app = bind.app; // lazy replacement
-			return;
-		}
-	// new key
-	XGrabKey(dpy, keycode, MOD_MASK, root, True, GrabModeAsync, GrabModeAsync);
-	vec_push(&binds, &bind, sizeof(silly_bind));
-}
-
-void silly_handle_bind(XKeyEvent* ev) {
-	KeySym sym = XLookupKeysym(ev, 0);
-	silly_bind* le_binds = (silly_bind*)binds.data;
-	for (int i = 0; i < binds.head; i++)
-		if (le_binds[i].keycode == sym) {
-			to_quit = (!strcmp(le_binds[i].app, "QUITSILLYWM"));
-			if (!to_quit) silly_run(le_binds[i].app);
-			return;
-		}
+	posix_spawnp(NULL, "/bin/sh", NULL, NULL, (char* []){ "sh", "-c", app, NULL }, environ);
 }
 
 silly_bar* silly_init_bar(void) {
@@ -280,7 +235,7 @@ void silly_destroy_bar(silly_bar* bar) {
 	free(bar);
 }
 
-// DOES NOT CHECK IF BUTTON IS DOWN THOUGH
+// DOES NOT CHECK IF BUTTON IS DOWN
 bool silly_button_inside(int x, int y, silly_button* but) {
     return x >= but->x && x < but->x + but->w && y >= but->y && y < but->y + but->h;
 }
@@ -304,7 +259,7 @@ silly_window* silly_find_window(Window wnd) {
 	return NULL;
 }
 
-// not yet defined
+// not yet defined til later
 void silly_unregister_window(silly_window* swnd);
 void silly_move_window(silly_window* swnd, int x, int y);
 
@@ -486,11 +441,8 @@ void silly_handle_ctl(int fd) {
 	}
 		
 	switch (ctrl->cmd) {
-	case START:
+	case EXEC:
 		silly_run(data);
-		break;
-	case BIND:
-		silly_init_bind((silly_bind){ ctrl->param1, strdup(data) });
 		break;
 	case KILL:
 		if (focus == None) break;
@@ -518,8 +470,10 @@ void silly_handle_ctl(int fd) {
 		int h     = ctrl->param2 + (rel_h ? swnd->client_height : 0);
 		silly_size_window(swnd, w, h);
 		break;
-
 	}
+	case QUIT:
+		to_quit = true;
+		break;
 	}
 }
 
@@ -535,19 +489,17 @@ void* silly_ctl_loop(void* arg) {
 	return NULL;
 }
 
-int main(int argc, char* argv[], char* envp[]) {
+int main(void) {
 	dpy = XOpenDisplay(0);
 	if (!dpy) return 1;
 
-	globenvp = envp;
+	setenv("XDG_CURRENT_DESKTOP", "sillywm", true);
+	setenv("XDG_SESSION_TYPE", "x11", true);
 
 	root = DefaultRootWindow(dpy);
 	scr = DefaultScreen(dpy);
 	scr_w = DisplayWidth(dpy, scr);
 	scr_h = DisplayHeight(dpy, scr);
-
-	// init vectors
-	vec_init(&binds, 8, sizeof(silly_bind));
 
 	// initialize sillyc (ideally) socket
 	sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -581,7 +533,7 @@ int main(int argc, char* argv[], char* envp[]) {
 		fprintf(stderr, "%s\n", combine);
 
 		pid_t config_pid;
-		posix_spawnp(&config_pid, combine, NULL, NULL, (char* []){ combine, NULL }, envp);
+		posix_spawnp(&config_pid, combine, NULL, NULL, (char* []){ combine, NULL }, environ);
 		waitpid(config_pid, NULL, 0); // wait for all sillyc init cmds
 	
 		free(combine);
@@ -686,9 +638,8 @@ int main(int argc, char* argv[], char* envp[]) {
 		} else if (ev.type == ButtonRelease) {
 			XUngrabPointer(dpy, CurrentTime);
 			start.window = None;
-		} else if (ev.type == KeyPress)
-			silly_handle_bind(&ev.xkey);
-		
+		}
+
 		if (to_quit) break;
 		swnd = NULL;
     }	

@@ -30,16 +30,16 @@ void silly_send_ctrl(silly_cmdop cmd, int param1, int param2,
 
 void print_help(void) {
 	char* help[] = {
-		"sillyc configurator " VERSION,
+		"sillywm configurator " VERSION,
 		"by stx4.",
 		""
 		"we're currently undocumented. here's some examples instead:",
+		"sillyc quit",
 		"sillyc set   border_width 8",
 		"sillyc size  +50 -50  (additive move to active)",
 		"sillyc move   40  40  (absolute move to active)",
-		"sillyc bind  Return \"dmenu-run\"",
 		"sillyc kill           (kills focus)",
-		"sillyc start \"xeyes -biblicallyAccurate\""
+		"sillyc exec \"xeyes -biblicallyAccurate\""
 	};
 	for (int i = 0; i < sizeof(help) / sizeof(help[0]); i++)
 		fprintf(stderr, "%s\n", help[i]);
@@ -61,9 +61,9 @@ int main(int argc, char* argv[]) {
 		connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0
 	) goto fail;
 
-	if        (!strcmp(argv[1], "start")) {
+	if        (!strcmp(argv[1], "exec")) {
 		if (argc < 3) goto help_fail;
-		silly_send_ctrl(START, 0, 0, argv[2], strlen(argv[2]));
+		silly_send_ctrl(EXEC, 0, 0, argv[2], strlen(argv[2]));
 	} else if (!strcmp(argv[1], "kill")) {
 		silly_send_ctrl(KILL, 0, 0, NULL, 0);
 	} else if (!strcmp(argv[1], "bind")) {
@@ -82,6 +82,8 @@ int main(int argc, char* argv[]) {
 		int h = (*argv[3] == '+' || *argv[3] == '-');
 		int flags = (w << 0) | (h << 1);
 		silly_send_ctrl(SIZE, atoi(argv[2]), atoi(argv[3]), &flags, 1);
+	} else if (!strcmp(argv[1], "set")) {
+		silly_send_ctrl(SET, 0, 0, argv[2], strlen(argv[2]));
 	}
 
 	close(sockfd);
