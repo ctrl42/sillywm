@@ -84,6 +84,8 @@ int main(int argc, char* argv[]) {
 		silly_send_ctrl(SIZE, atoi(argv[2]), atoi(argv[3]), &flags, 1);
 	} else if (!strcmp(argv[1], "set")) {
 		silly_send_ctrl(SET, 0, 0, argv[2], strlen(argv[2]));
+	} else if (!strcmp(argv[1], "quit")) {
+		silly_send_ctrl(QUIT, 0, 0, NULL, 0);
 	}
 
 	close(sockfd);
