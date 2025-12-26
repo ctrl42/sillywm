@@ -130,7 +130,7 @@ int BORDER_EDGE   = 0x3C3836;
 int WINDOW_BG     = 0x282828;
 
 int MOD_MASK      = Mod4Mask;
-int CURSOR        = XC_X_cursor;
+int CURSOR        = XC_left_ptr;
 #define BORDER_INNER (BORDER_SIZE - 1)
 
 #define SOCKET_BASE "/tmp/sillywm-%s.sock"
@@ -470,6 +470,11 @@ void silly_handle_ctl(int fd) {
 		int h     = ctrl->param2 + (rel_h ? swnd->client_height : 0);
 		silly_size_window(swnd, w, h);
 		break;
+	}
+	case ROLL: {
+		silly_window* swnd = silly_find_window(focus);
+		if (!swnd) break;
+		silly_roll_window(swnd);
 	}
 	case QUIT:
 		to_quit = true;

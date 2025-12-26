@@ -66,6 +66,8 @@ int main(int argc, char* argv[]) {
 		silly_send_ctrl(EXEC, 0, 0, argv[2], strlen(argv[2]));
 	} else if (!strcmp(argv[1], "kill")) {
 		silly_send_ctrl(KILL, 0, 0, NULL, 0);
+	} else if (!strcmp(argv[1], "roll")) {
+		silly_send_ctrl(ROLL, 0, 0, NULL, 0);
 	} else if (!strcmp(argv[1], "bind")) {
 		if (argc < 4) goto help_fail;
 		silly_send_ctrl(BIND, XStringToKeysym(argv[2]), 0,
