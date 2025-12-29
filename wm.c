@@ -1,5 +1,7 @@
+//
 // sillywm
 // by stx4
+//
 
 #include <time.h>
 #include <fcntl.h>
@@ -34,11 +36,6 @@ typedef struct {
 typedef struct {
 	int x, y, w, h;
 } silly_button;
-
-typedef struct {
-	int head, max;
-	void* data; // reusable
-} silly_vec;
 
 typedef struct {
 	Window wnd;
