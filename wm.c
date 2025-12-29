@@ -29,11 +29,6 @@
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
 typedef struct {
-	int keycode;
-	char* app;
-} silly_bind;
-
-typedef struct {
 	int x, y, w, h;
 } silly_button;
 
