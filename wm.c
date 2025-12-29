@@ -41,6 +41,7 @@ typedef struct {
 typedef struct silly_window {
 	Window client;
 	Window border;
+	Window titlebar; // explicit click zone
 	GC border_gc;
 
 	bool rolled;
@@ -49,7 +50,7 @@ typedef struct silly_window {
 	int client_width, client_height;
 
 	silly_button close, minimize;
-	silly_button titlebar;
+	silly_button titlebar_hit;
 
 	struct silly_window* next;
 } silly_window;
@@ -247,7 +248,8 @@ void close_window(Window wnd) {
 
 silly_window* silly_find_window(Window wnd) {
 	for (silly_window* swnd = current; swnd; swnd = swnd->next)
-		if (swnd->client == wnd || swnd->border == wnd) return swnd;
+		if (swnd->client   == wnd || swnd->border == wnd ||
+			swnd->titlebar == wnd) return swnd;
 	return NULL;
 }
 
@@ -287,23 +289,27 @@ silly_window* silly_register_window(Window client) {
 	swnd->border_width  = border_width;
 	swnd->border_height = border_height;
 
-	swnd->close    = (silly_button){ BORDER_SIZE, BORDER_SIZE, BUTTON_SIZE, TITLE_HEIGHT };
-	swnd->minimize = (silly_button){ swnd->border_width - BORDER_SIZE - BUTTON_SIZE, BORDER_SIZE, BUTTON_SIZE, TITLE_HEIGHT };
-	swnd->titlebar = (silly_button){ BORDER_SIZE + BUTTON_SIZE, BORDER_SIZE, swnd->client_width - (BUTTON_SIZE * 2) - 2, TITLE_HEIGHT };
+	swnd->close        = (silly_button){ BORDER_SIZE, BORDER_SIZE, BUTTON_SIZE, TITLE_HEIGHT };
+	swnd->minimize     = (silly_button){ swnd->border_width - BORDER_SIZE - BUTTON_SIZE, BORDER_SIZE, BUTTON_SIZE, TITLE_HEIGHT };
+	swnd->titlebar_hit = (silly_button){ BORDER_SIZE + BUTTON_SIZE, BORDER_SIZE, swnd->client_width - (BUTTON_SIZE * 2) - 2, TITLE_HEIGHT };
 
-	swnd->border = XCreateSimpleWindow(dpy, root, x, y, border_width, border_height, 0, 0, BORDER_BG);
-	XReparentWindow(dpy, swnd->client, swnd->border, BORDER_SIZE, BORDER_SIZE + TITLE_HEIGHT + 1);
+	swnd->border   = XCreateSimpleWindow(dpy, root,   x, y, border_width, border_height, 0, 0, BORDER_BG);
+	XReparentWindow(dpy, swnd->client,   swnd->border, BORDER_SIZE, BORDER_SIZE + TITLE_HEIGHT + 1);
 
 	// spawn em
 	XMapWindow(dpy, swnd->client);
 	XMapWindow(dpy, swnd->border);
 
-	// stuff
-	XSelectInput(dpy, swnd->client, StructureNotifyMask); // unmap
-	XSelectInput(dpy, swnd->border, SubstructureRedirectMask | ButtonPressMask | ButtonReleaseMask | ExposureMask);
+	// title bar is special
+	XSetWindowAttributes title_attrs;
+	title_attrs.event_mask = ButtonPressMask | ButtonReleaseMask;
+	swnd->titlebar = XCreateWindow(dpy, swnd->border, BORDER_SIZE, BORDER_SIZE, swnd->client_width, TITLE_HEIGHT, 0, CopyFromParent, InputOnly, CopyFromParent, CWEventMask, &title_attrs); 
+	// spawn it too
+	XMapWindow(dpy, swnd->titlebar);
 
-	// grab title bar window stuff
-	XGrabButton(dpy, AnyButton, AnyModifier, swnd->border, False, ButtonPressMask | ButtonReleaseMask, GrabModeAsync, GrabModeAsync, None, None);
+	// stuff
+	XSelectInput(dpy, swnd->client,   StructureNotifyMask); // unmap
+	XSelectInput(dpy, swnd->border,   SubstructureRedirectMask | ExposureMask);
 
 	// permit client destruction later
 	Atom wm_delete = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
@@ -341,8 +347,7 @@ void silly_unregister_window(silly_window* swnd) {
 		silly_window* search = current;
 		while (search && search->next != swnd)
 			search = search->next;
-		if (!search) goto unmap;
-		search->next = swnd->next;
+		if (search) search->next = swnd->next;
 	}
 
 unmap:
@@ -379,9 +384,9 @@ void silly_size_window(silly_window* swnd, int width, int height) {
 	swnd->border_height = swnd->client_height + (BORDER_SIZE * 2)
 		+ TITLE_HEIGHT + 1;
 
-	swnd->close    = (silly_button){ BORDER_SIZE, BORDER_SIZE, BUTTON_SIZE, TITLE_HEIGHT };
-	swnd->minimize = (silly_button){ swnd->border_width - BORDER_SIZE - BUTTON_SIZE, BORDER_SIZE, BUTTON_SIZE, TITLE_HEIGHT };
-	swnd->titlebar = (silly_button){ BORDER_SIZE + BUTTON_SIZE, BORDER_SIZE, swnd->client_width - (BUTTON_SIZE * 2) - 2, TITLE_HEIGHT };
+	swnd->close        = (silly_button){ BORDER_SIZE, BORDER_SIZE, BUTTON_SIZE, TITLE_HEIGHT };
+	swnd->minimize     = (silly_button){ swnd->border_width - BORDER_SIZE - BUTTON_SIZE, BORDER_SIZE, BUTTON_SIZE, TITLE_HEIGHT };
+	swnd->titlebar_hit = (silly_button){ BORDER_SIZE + BUTTON_SIZE, BORDER_SIZE, swnd->client_width - (BUTTON_SIZE * 2) - 2, TITLE_HEIGHT };
 
 	XResizeWindow(dpy, swnd->client,
 		swnd->client_width, swnd->client_height);
@@ -621,16 +626,16 @@ int main(void) {
 			} else if (swnd && silly_button_inside(x, y, &swnd->minimize)) {
 				silly_roll_window(swnd);
 				silly_refresh_bar(bar, swnd->rolled ? None : swnd->client);
-			} else if (swnd && silly_button_inside(x, y, &swnd->titlebar)) {
+			} else if (swnd && silly_button_inside(x, y, &swnd->titlebar_hit)) {
 				start = ev.xbutton;
-				XGetWindowAttributes(dpy, ev.xbutton.window, &attr);
+				XGetWindowAttributes(dpy, /*start.window*/swnd->border, &attr);
 				XGrabPointer(dpy, swnd->border, True, PointerMotionMask | ButtonReleaseMask,
 					GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
 			}
         } else if (ev.type == MotionNotify) {
+			swnd = silly_find_window(start.window);
 			int x = attr.x + ev.xbutton.x_root - start.x_root;
 			int y = attr.y + ev.xbutton.y_root - start.y_root;
-			swnd = silly_find_window(start.window);
 			if (swnd) silly_move_window(swnd, x, y);
 		} else if (ev.type == ButtonRelease) {
 			XUngrabPointer(dpy, CurrentTime);
